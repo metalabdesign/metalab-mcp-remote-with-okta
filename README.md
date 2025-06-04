@@ -1,16 +1,17 @@
 # MCP Remote with Okta/Adobe IMS Authentication
 
-A wrapper for `mcp-remote` that handles Adobe IMS/Okta OAuth authentication automatically, eliminating the need for manual token management.
+A wrapper for `mcp-remote` that handles Adobe IMS/Okta user authentication using implicit grant flow, eliminating the need for manual token management.
 
 ## Features
 
-- 🔐 **Automatic OAuth Authentication**: Handles Adobe IMS OAuth flow with PKCE security
-- 🔄 **Token Management**: Automatically refreshes expired tokens (24-hour lifetime)
+- 🔐 **Automatic User Authentication**: Handles Adobe IMS OAuth implicit grant flow
+- 🔄 **Token Management**: Automatically refreshes expired tokens (1-hour lifetime)
 - 🖥️ **Cross-Platform**: Works on macOS, Windows, and Linux
 - 🚀 **Zero Maintenance**: Set it once, never worry about tokens again
 - 🔧 **Configurable**: Support for custom client IDs, scopes, and MCP URLs
-- 📱 **Browser Integration**: Opens browser automatically for authentication
+- 📱 **Browser Integration**: Opens browser automatically for user authentication
 - 🔒 **Secure Storage**: Tokens stored securely in `~/.cursor/`
+- 🔑 **Simple Setup**: No client secret required - works with implicit grant
 
 ## Installation
 
@@ -33,8 +34,7 @@ mcp-remote-with-okta <mcp-url>
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `ADOBE_CLIENT_ID` | ✅ Required | - | Client ID for Adobe IMS |
-| `ADOBE_CLIENT_SECRET` | ✅ Required | - | Client secret for Adobe IMS |
+| `ADOBE_CLIENT_ID` | ✅ Required | - | Client ID for Adobe IMS (Implicit Grant) |
 | `ADOBE_SCOPE` | Optional | `AdobeID,openid` | OAuth scope for Adobe IMS |
 
 ### MCP Configuration
@@ -51,8 +51,7 @@ Add to your `~/.cursor/mcp.json`:
         "https://your-mcp-server.com/mcp"
       ],
       "env": {
-        "ADOBE_CLIENT_ID": "your_client_id_here",
-        "ADOBE_CLIENT_SECRET": "your_client_secret_here"
+        "ADOBE_CLIENT_ID": "your_client_id_here"
       }
     }
   }
@@ -63,7 +62,7 @@ Add to your `~/.cursor/mcp.json`:
 
 ### As MCP Server (Primary Use Case)
 
-The script automatically detects when called as an MCP server and handles authentication transparently:
+The script automatically detects when called as an MCP server and handles user authentication transparently:
 
 ```bash
 npx mcp-remote-with-okta https://my.mcp-server.com/mcp
@@ -74,7 +73,7 @@ npx mcp-remote-with-okta https://my.mcp-server.com/mcp
 The package also provides CLI commands for token management:
 
 ```bash
-# Authenticate and get token
+# Authenticate user and get token
 npx mcp-remote-with-okta <mcp-url> authenticate
 
 # Check token status
@@ -93,24 +92,26 @@ npx mcp-remote-with-okta <mcp-url> help
 ## How It Works
 
 1. **Token Check**: Script checks for valid stored tokens in `~/.cursor/adobe-tokens.json`
-2. **Authentication**: If no valid token exists, launches OAuth flow:
-   - Opens browser to Adobe IMS login
-   - Starts local server on `localhost:8080` for callback
-   - Exchanges authorization code for access token using PKCE
+2. **User Authentication**: If no valid token exists, launches OAuth implicit flow:
+   - Opens browser to Adobe IMS login page
+   - User logs in with their Adobe ID
+   - Adobe IMS redirects to `localhost:8080` with token in URL fragment
+   - JavaScript extracts token and sends to local server
 3. **Token Storage**: Securely stores tokens with expiration tracking
 4. **MCP Launch**: Launches `mcp-remote` with `Authorization: Bearer <token>` header
-5. **Auto-Refresh**: Automatically refreshes tokens when they expire
+5. **Auto-Refresh**: Automatically refreshes tokens when they expire (every hour)
 
 ## Authentication Flow
 
-The package uses OAuth 2.0 Authorization Code flow with PKCE (Proof Key for Code Exchange) for security:
+The package uses OAuth 2.0 Implicit Grant flow for simplicity:
 
 ```
-1. User → Browser → Adobe IMS Login
-2. Adobe IMS → Callback → localhost:8080
-3. Script → Exchange Code → Access Token
-4. Script → Store Token → ~/.cursor/
-5. Script → Launch MCP → With Auth Header
+1. User → Browser → Adobe IMS Login Page
+2. User → Authenticates → Adobe ID Credentials
+3. Adobe IMS → Redirect → localhost:8080#access_token=...
+4. JavaScript → Extract Token → Send to Server
+5. Script → Store Token → ~/.cursor/
+6. Script → Launch MCP → With Auth Header
 ```
 
 ## Troubleshooting
@@ -122,11 +123,6 @@ The package uses OAuth 2.0 Authorization Code flow with PKCE (Proof Key for Code
 # Ensure ADOBE_CLIENT_ID is set in your MCP config
 ```
 
-**"Client secret not found"**
-```bash
-# Ensure ADOBE_CLIENT_SECRET is set in your MCP config
-```
-
 **"Port 8080 in use"**
 ```bash
 # The redirect URI is hardcoded to localhost:8080
@@ -136,6 +132,19 @@ The package uses OAuth 2.0 Authorization Code flow with PKCE (Proof Key for Code
 **"Browser doesn't open"**
 ```bash
 # Manually visit the authentication URL that appears in the terminal
+```
+
+**"Invalid client configuration"**
+```bash
+# Ensure your Adobe Developer Console project is configured as:
+# - Implicit Grant enabled
+# - Redirect URI: http://localhost:8080/callback
+```
+
+**"unsupported_grant_type"**
+```bash
+# This means your Adobe IMS client doesn't have Implicit Grant enabled
+# Enable "Implicit Grant" in Adobe Developer Console
 ```
 
 ### Debug Mode
@@ -156,24 +165,54 @@ npx mcp-remote-with-okta <url> authenticate
 ## Security Notes
 
 - Tokens are stored locally in `~/.cursor/adobe-tokens.json`
-- Uses PKCE for additional OAuth security
-- Tokens expire after 24 hours and are automatically refreshed
-- Client secrets should be kept secure and not committed to version control
+- Uses implicit grant flow (tokens visible in browser URL during auth)
+- No client secret required
+- Tokens expire after 1 hour and require re-authentication
+- User authentication required for each new token
 
-## Adobe IMS Setup
+## Adobe Developer Console Setup
 
-To use this package, you need:
+To use this package, you need to configure Adobe Developer Console for implicit grant:
 
-1. An Adobe Developer Console project
-2. OAuth Server-to-Server credentials configured
-3. Redirect URI set to `http://localhost:8080/callback`
-4. Appropriate scopes enabled (typically `AdobeID,openid`)
+### Step-by-Step Setup
+
+1. **Create a Project**:
+   - Go to [Adobe Developer Console](https://developer.adobe.com/console/)
+   - Create a new project or select existing one
+
+2. **Add OAuth Web App**:
+   - Click "Add API" → "Adobe Services" → Choose appropriate service
+   - Select "OAuth Web App" credential type
+
+3. **Configure Grant Types**:
+   - Enable **"Implicit Grant"** ✅
+   - Enable **"Refresh Token Grant"** (optional) ✅
+   - Authorization Code Grant is not required
+
+4. **Set Redirect URI**:
+   - Add redirect URI: `http://localhost:8080/callback`
+   - This must match exactly (including the port)
+
+5. **Configure Scopes**:
+   - Add required scopes (minimum: `AdobeID`, `openid`)
+   - Add any additional scopes your MCP server requires
+
+6. **Copy Client ID**:
+   - Copy the Client ID for your environment configuration
+   - No client secret needed for implicit grant
+
+### Required Configuration
+
+- **Grant Type**: Implicit Grant
+- **Redirect URI**: `http://localhost:8080/callback`
+- **Scopes**: `AdobeID,openid` (minimum)
 
 ## Requirements
 
 - Node.js 18.0.0 or higher
 - Internet connection for authentication
-- Browser for OAuth flow
+- Browser for OAuth implicit flow
+- Adobe ID account
 
 ## Contributing
 

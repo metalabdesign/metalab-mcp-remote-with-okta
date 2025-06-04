@@ -3,7 +3,6 @@
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
-const https = require('https');
 const { URL } = require('url');
 const { spawn } = require('child_process');
 const os = require('os');
@@ -12,9 +11,9 @@ const crypto = require('crypto');
 /**
  * Adobe Authentication and MCP Wrapper
  *
- * This script handles Adobe IMS authentication and launches the MCP remote server
- * with proper authentication headers. It can be used directly as an MCP server
- * command or run standalone for authentication management.
+ * This script handles Adobe IMS authentication using implicit grant flow
+ * and launches the MCP remote server with proper authentication headers.
+ * It can be used directly as an MCP server command or run standalone for authentication management.
  */
 class AdobeMCPWrapper {
   constructor(mcpRemoteUrl, options = {}) {
@@ -23,15 +22,13 @@ class AdobeMCPWrapper {
 
     // Adobe IMS configuration using environment variables
     this.clientId = process.env.ADOBE_CLIENT_ID;
-    this.clientSecret = process.env.ADOBE_CLIENT_SECRET;
     this.scope = process.env.ADOBE_SCOPE || 'AdobeID,openid';
     this.redirectUri = 'http://localhost:8080/callback';
 
     this.authUrl = 'https://ims-na1.adobelogin.com/ims/authorize/v2';
-    this.tokenUrl = 'https://ims-na1.adobelogin.com/ims/token/v3';
 
     // MCP configuration
-    this.mcpRemoteUrl = mcpRemoteUrl;
+    this.mcpRemoteUrl = mcpRemoteUrl || 'https://spacecat.experiencecloud.live/api/v1/mcp';
     this.mcpArgs = [
       'npx', 'mcp-remote@latest',
       this.mcpRemoteUrl,
@@ -60,13 +57,6 @@ class AdobeMCPWrapper {
     if (!fs.existsSync(this.configDir)) {
       fs.mkdirSync(this.configDir, { recursive: true });
     }
-  }
-
-  // Generate PKCE challenge
-  static generatePKCE() {
-    const codeVerifier = crypto.randomBytes(32).toString('base64url');
-    const codeChallenge = crypto.createHash('sha256').update(codeVerifier).digest('base64url');
-    return { codeVerifier, codeChallenge };
   }
 
   // Load stored tokens
@@ -100,7 +90,7 @@ class AdobeMCPWrapper {
   static isTokenExpired(tokens) {
     if (!tokens || !tokens.timestamp) return true;
 
-    const expiresIn = parseInt(tokens.expires_in, 10) || 86400; // Default 24 hours
+    const expiresIn = parseInt(tokens.expires_in, 10) || 3600; // Default 1 hour for implicit flow
     const expirationTime = tokens.timestamp + (expiresIn * 1000);
     const now = Date.now();
 
@@ -108,34 +98,27 @@ class AdobeMCPWrapper {
     return (expirationTime - now) < (5 * 60 * 1000);
   }
 
-  // Start OAuth flow
+  // Start OAuth implicit flow
   async startAuthFlow() {
     if (!this.clientId) {
       throw new Error('Client ID not found. Please add ADOBE_CLIENT_ID to your MCP config environment variables.');
     }
 
-    if (!this.clientSecret) {
-      throw new Error('Client secret not found. Please add ADOBE_CLIENT_SECRET to your MCP config environment variables.');
-    }
-
-    const { codeVerifier, codeChallenge } = AdobeMCPWrapper.generatePKCE();
     const state = crypto.randomBytes(16).toString('hex');
 
     const authParams = new URLSearchParams({
       client_id: this.clientId,
       redirect_uri: this.redirectUri,
       scope: this.scope,
-      response_type: 'code',
-      code_challenge: codeChallenge,
-      code_challenge_method: 'S256',
+      response_type: 'token',
       state,
-      response_mode: 'query',
+      response_mode: 'fragment',
     });
 
     const authUrlWithParams = `${this.authUrl}?${authParams.toString()}`;
 
-    this.output('🚀 Starting Adobe authentication flow...', true);
-    this.output('📱 Opening browser for authentication...', true);
+    this.output('🚀 Starting Adobe implicit grant authentication flow...', true);
+    this.output('📱 Opening browser for user authentication...', true);
 
     // Open browser
     this.openBrowser(authUrlWithParams);
@@ -146,46 +129,129 @@ class AdobeMCPWrapper {
         const url = new URL(req.url, 'http://localhost:8080');
 
         if (url.pathname === '/callback') {
-          const code = url.searchParams.get('code');
-          const returnedState = url.searchParams.get('state');
-          const error = url.searchParams.get('error');
-
-          if (error) {
-            res.writeHead(400, { 'Content-Type': 'text/html' });
-            res.end(`<h1>Authentication Error</h1><p>${error}</p>`);
-            server.close();
-            reject(new Error(`Authentication error: ${error}`));
-            return;
-          }
-
-          if (returnedState !== state) {
-            res.writeHead(400, { 'Content-Type': 'text/html' });
-            res.end('<h1>Authentication Error</h1><p>Invalid state parameter</p>');
-            server.close();
-            reject(new Error('Invalid state parameter'));
-            return;
-          }
-
-          if (code) {
+          // For implicit flow, we need to serve HTML that can read the fragment
+          res.writeHead(200, { 'Content-Type': 'text/html' });
+          res.end(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+              <title>Adobe Authentication</title>
+            </head>
+            <body>
+              <h1>Processing Authentication...</h1>
+              <p id="status">Reading authentication response...</p>
+              <script>
+                function parseFragment() {
+                  const fragment = window.location.hash.substring(1);
+                  const params = new URLSearchParams(fragment);
+                  
+                  const accessToken = params.get('access_token');
+                  const expiresIn = params.get('expires_in');
+                  const state = params.get('state');
+                  const error = params.get('error');
+                  const errorDescription = params.get('error_description');
+                  
+                  if (error) {
+                    document.getElementById('status').innerHTML = 
+                      '<h2 style="color: red;">Authentication Error</h2><p>' + 
+                      (errorDescription || error) + '</p>';
+                    
+                    // Send error to server
+                    fetch('/error', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ error: error, error_description: errorDescription })
+                    });
+                    return;
+                  }
+                  
+                  if (accessToken) {
+                    document.getElementById('status').innerHTML = 
+                      '<h2 style="color: green;">Authentication Successful!</h2>' +
+                      '<p>You can now close this tab and return to your terminal.</p>';
+                    
+                    // Send success to server
+                    fetch('/success', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ 
+                        access_token: accessToken, 
+                        expires_in: expiresIn,
+                        state: state
+                      })
+                    }).then(() => {
+                      setTimeout(() => window.close(), 3000);
+                    });
+                  } else {
+                    document.getElementById('status').innerHTML = 
+                      '<h2 style="color: red;">Authentication Error</h2>' +
+                      '<p>No access token received</p>';
+                  }
+                }
+                
+                // Parse fragment when page loads
+                parseFragment();
+              </script>
+            </body>
+            </html>
+          `);
+        } else if (url.pathname === '/success') {
+          // Handle success callback from JavaScript
+          let body = '';
+          req.on('data', (chunk) => {
+            body += chunk;
+          });
+          req.on('end', () => {
             try {
-              const tokens = await this.exchangeCodeForToken(code, codeVerifier);
+              const data = JSON.parse(body);
 
-              res.writeHead(200, { 'Content-Type': 'text/html' });
-              res.end(`
-                <h1>Authentication Successful!</h1>
-                <p>You can now close this tab and return to your terminal.</p>
-                <script>setTimeout(() => window.close(), 3000);</script>
-              `);
+              if (data.state !== state) {
+                res.writeHead(400);
+                res.end('Invalid state');
+                server.close();
+                reject(new Error('Invalid state parameter'));
+                return;
+              }
 
+              const tokens = {
+                access_token: data.access_token,
+                expires_in: data.expires_in || '3600',
+                token_type: 'Bearer',
+              };
+
+              res.writeHead(200);
+              res.end('OK');
               server.close();
+
+              this.output('🎉 Successfully obtained access token via implicit flow!', true);
               resolve(tokens);
-            } catch (tokenError) {
-              res.writeHead(500, { 'Content-Type': 'text/html' });
-              res.end(`<h1>Token Exchange Error</h1><p>${tokenError.message}</p>`);
+            } catch (parseError) {
+              res.writeHead(500);
+              res.end('Parse error');
               server.close();
-              reject(tokenError);
+              reject(new Error(`Failed to parse response: ${parseError.message}`));
             }
-          }
+          });
+        } else if (url.pathname === '/error') {
+          // Handle error callback from JavaScript
+          let body = '';
+          req.on('data', (chunk) => {
+            body += chunk;
+          });
+          req.on('end', () => {
+            try {
+              const data = JSON.parse(body);
+              res.writeHead(400);
+              res.end('Error received');
+              server.close();
+              reject(new Error(`Authentication error: ${data.error_description || data.error}`));
+            } catch (parseError) {
+              res.writeHead(500);
+              res.end('Parse error');
+              server.close();
+              reject(new Error('Failed to parse error response'));
+            }
+          });
         } else {
           res.writeHead(404, { 'Content-Type': 'text/html' });
           res.end('<h1>Not Found</h1>');
@@ -199,63 +265,6 @@ class AdobeMCPWrapper {
       server.on('error', (serverError) => {
         reject(new Error(`Server error: ${serverError.message}`));
       });
-    });
-  }
-
-  // Exchange authorization code for tokens
-  async exchangeCodeForToken(code, codeVerifier) {
-    const tokenData = new URLSearchParams({
-      grant_type: 'authorization_code',
-      client_id: this.clientId,
-      client_secret: this.clientSecret,
-      code,
-      redirect_uri: this.redirectUri,
-      code_verifier: codeVerifier,
-    });
-
-    return new Promise((resolve, reject) => {
-      const postData = tokenData.toString();
-
-      const options = {
-        hostname: 'ims-na1.adobelogin.com',
-        port: 443,
-        path: '/ims/token/v3',
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'Content-Length': Buffer.byteLength(postData),
-        },
-      };
-
-      const req = https.request(options, (res) => {
-        let data = '';
-
-        res.on('data', (chunk) => {
-          data += chunk;
-        });
-
-        res.on('end', () => {
-          try {
-            const response = JSON.parse(data);
-
-            if (res.statusCode === 200) {
-              this.output('🎉 Successfully obtained access token!', true);
-              resolve(response);
-            } else {
-              reject(new Error(`Token exchange failed: ${response.error_description || response.error || 'Unknown error'}`));
-            }
-          } catch (parseError) {
-            reject(new Error(`Failed to parse token response: ${parseError.message}`));
-          }
-        });
-      });
-
-      req.on('error', (requestError) => {
-        reject(new Error(`Request failed: ${requestError.message}`));
-      });
-
-      req.write(postData);
-      req.end();
     });
   }
 
@@ -306,20 +315,16 @@ class AdobeMCPWrapper {
   // Launch MCP remote with authentication
   async launchMCP() {
     try {
-      this.output('🔐 Adobe MCP Wrapper starting...', true);
+      this.output('🔐 Adobe MCP Wrapper (Implicit Flow) starting...', true);
       // Check if required environment variables are available
       if (!this.clientId) {
         throw new Error('ADOBE_CLIENT_ID environment variable not found. Please check your MCP configuration.');
       }
 
-      if (!this.clientSecret) {
-        throw new Error('ADOBE_CLIENT_SECRET environment variable not found. Please check your MCP configuration.');
-      }
-
       // Get valid access token
       const accessToken = await this.getValidToken();
 
-      this.output('🚀 Launching MCP remote with authentication...', true);
+      this.output('🚀 Launching MCP remote with implicit grant authentication...', true);
 
       // Prepare command with authentication header
       const command = this.mcpArgs[0];
@@ -359,13 +364,13 @@ class AdobeMCPWrapper {
 
   // CLI interface for standalone usage
   async runCLI(command) {
-    this.output('🔐 Adobe Experience Cloud Authentication CLI\n');
+    this.output('🔐 Adobe Experience Cloud User Authentication CLI (Implicit Flow)\n');
 
     try {
       switch (command) {
         case 'authenticate': {
           const token = await this.getValidToken();
-          this.output('\n🎉 Authentication completed successfully!');
+          this.output('\n🎉 User authentication completed successfully!');
           this.output(`🔑 Access Token: ${token.substring(0, 20)}...`);
           break;
         }
@@ -376,7 +381,7 @@ class AdobeMCPWrapper {
             const isExpired = AdobeMCPWrapper.isTokenExpired(tokens);
             this.output(`📊 Token Status: ${isExpired ? '❌ Expired' : '✅ Valid'}`);
             if (tokens.timestamp) {
-              const expiresIn = parseInt(tokens.expires_in, 10) || 86400;
+              const expiresIn = parseInt(tokens.expires_in, 10) || 3600;
               const expirationTime = new Date(tokens.timestamp + (expiresIn * 1000));
               this.output(`⏰ Expires at: ${expirationTime.toLocaleString()}`);
             }
@@ -411,7 +416,7 @@ class AdobeMCPWrapper {
         case 'help':
         default:
           this.output('📚 Available commands:');
-          this.output('  authenticate - Authenticate and get token');
+          this.output('  authenticate - Authenticate user and get token');
           this.output('  status       - Check token status');
           this.output('  token        - Display current valid token');
           this.output('  clear        - Clear stored tokens');
@@ -421,21 +426,19 @@ class AdobeMCPWrapper {
           this.output('  npx mcp-remote-with-okta <mcp-url> <command>');
           this.output('  npx mcp-remote-with-okta <mcp-url>  # Launch as MCP server');
           this.output('\n🔑 Environment Variables:');
-          this.output('  ADOBE_CLIENT_ID     - Required: Client ID for Adobe IMS');
-          this.output('  ADOBE_CLIENT_SECRET - Required: Client secret for Adobe IMS');
+          this.output('  ADOBE_CLIENT_ID     - Required: Client ID for Adobe IMS (Implicit Grant)');
           this.output('  ADOBE_SCOPE         - Optional: OAuth scope (default: AdobeID,openid)');
-          this.output('\n💡 Example MCP config:');
+          this.output('\n💡 Example MCP config (Implicit Grant):');
           this.output('  {');
           this.output('    "mcpServers": {');
           this.output('      "my-mcp-server": {');
-          this.output('        "command": "node",');
+          this.output('        "command": "npx",');
           this.output('        "args": [');
-          this.output('          "/path/to/mcp-adobe-auth-wrapper.js",');
+          this.output('          "mcp-remote-with-okta",');
           this.output('          "https://your-mcp-server.com/mcp"');
           this.output('        ],');
           this.output('        "env": {');
           this.output('          "ADOBE_CLIENT_ID": "your_client_id_here",');
-          this.output('          "ADOBE_CLIENT_SECRET": "your_client_secret_here",');
           this.output('          "ADOBE_SCOPE": "AdobeID,openid"  // Optional: defaults to AdobeID,openid');
           this.output('        }');
           this.output('      }');
@@ -491,4 +494,3 @@ if (require.main === module) {
 }
 
 module.exports = AdobeMCPWrapper;
-
