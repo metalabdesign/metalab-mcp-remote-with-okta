@@ -418,8 +418,8 @@ class AdobeMCPWrapper {
           this.output('  mcp          - Launch MCP remote with authentication');
           this.output('  help         - Show this help message');
           this.output('\n🔧 Usage:');
-          this.output('  node mcp-adobe-auth-wrapper.js <mcp-url> <command>');
-          this.output('  node mcp-adobe-auth-wrapper.js <mcp-url>  # Launch as MCP server');
+          this.output('  npx mcp-remote-with-okta <mcp-url> <command>');
+          this.output('  npx mcp-remote-with-okta <mcp-url>  # Launch as MCP server');
           this.output('\n🔑 Environment Variables:');
           this.output('  ADOBE_CLIENT_ID     - Required: Client ID for Adobe IMS');
           this.output('  ADOBE_CLIENT_SECRET - Required: Client secret for Adobe IMS');
@@ -474,8 +474,8 @@ async function main() {
   } else {
     // No URL provided or invalid usage
     console.log('Usage:');
-    console.log('  node mcp-adobe-auth-wrapper.js <mcp-url> <command>');
-    console.log('  node mcp-adobe-auth-wrapper.js <mcp-url>  # Launch as MCP server');
+    console.log('  npx mcp-remote-with-okta <mcp-url> <command>');
+    console.log('  npx mcp-remote-with-okta <mcp-url>  # Launch as MCP server');
     console.log('');
     console.log('Commands: authenticate, status, token, clear, mcp, help');
     process.exit(1);
