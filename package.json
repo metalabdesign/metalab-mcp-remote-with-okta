@@ -1,6 +1,6 @@
 {
   "name": "mcp-remote-with-okta",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "MCP remote server with Adobe IMS/Okta authentication wrapper",
   "main": "index.js",
   "bin": {

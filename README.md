@@ -44,11 +44,11 @@ Add to your `~/.cursor/mcp.json`:
 ```json
 {
   "mcpServers": {
-    "aem_sites_optimizer": {
+    "my-mcp-server": {
       "command": "npx",
       "args": [
         "mcp-remote-with-okta",
-        "https://your-mcp-server.com/api/v1/mcp"
+        "https://your-mcp-server.com/mcp"
       ],
       "env": {
         "ADOBE_CLIENT_ID": "your_client_id_here",

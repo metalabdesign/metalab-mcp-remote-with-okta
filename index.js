@@ -31,7 +31,7 @@ class AdobeMCPWrapper {
     this.tokenUrl = 'https://ims-na1.adobelogin.com/ims/token/v3';
 
     // MCP configuration
-    this.mcpRemoteUrl = mcpRemoteUrl || 'https://spacecat.experiencecloud.live/api/v1/mcp';
+    this.mcpRemoteUrl = mcpRemoteUrl;
     this.mcpArgs = [
       'npx', 'mcp-remote@latest',
       this.mcpRemoteUrl,
@@ -427,11 +427,11 @@ class AdobeMCPWrapper {
           this.output('\n💡 Example MCP config:');
           this.output('  {');
           this.output('    "mcpServers": {');
-          this.output('      "aem_sites_optimizer": {');
+          this.output('      "my-mcp-server": {');
           this.output('        "command": "node",');
           this.output('        "args": [');
           this.output('          "/path/to/mcp-adobe-auth-wrapper.js",');
-          this.output('          "https://spacecat.experiencecloud.live/api/v1/mcp"');
+          this.output('          "https://your-mcp-server.com/mcp"');
           this.output('        ],');
           this.output('        "env": {');
           this.output('          "ADOBE_CLIENT_ID": "your_client_id_here",');
