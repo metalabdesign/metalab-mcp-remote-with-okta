@@ -1,0 +1,35 @@
+{
+  "name": "mcp-remote-with-okta",
+  "version": "1.0.0",
+  "description": "MCP remote server with Adobe IMS/Okta authentication wrapper",
+  "main": "mcp-adobe-auth-wrapper.js",
+  "bin": {
+    "mcp-remote-with-okta": "./mcp-adobe-auth-wrapper.js"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "mcp",
+    "adobe",
+    "okta", 
+    "ims",
+    "authentication",
+    "oauth",
+    "remote"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yourusername/mcp-remote-with-okta.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/mcp-remote-with-okta/issues"
+  },
+  "homepage": "https://github.com/yourusername/mcp-remote-with-okta#readme",
+  "dependencies": {}
+} 
