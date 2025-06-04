@@ -66,7 +66,7 @@ Add to your `~/.cursor/mcp.json`:
 The script automatically detects when called as an MCP server and handles authentication transparently:
 
 ```bash
-npx mcp-remote-with-okta https://spacecat.experiencecloud.live/api/v1/mcp
+npx mcp-remote-with-okta https://my.mcp-server.com/mcp
 ```
 
 ### CLI Commands
@@ -186,12 +186,3 @@ To use this package, you need:
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Changelog
-
-### v1.0.0
-- Initial release
-- Adobe IMS OAuth authentication
-- Automatic token management
-- Cross-platform support
-- MCP integration 
