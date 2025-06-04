@@ -18,18 +18,18 @@
     "oauth",
     "remote"
   ],
-  "author": "Your Name",
+  "author": "Adobe",
   "license": "MIT",
   "engines": {
     "node": ">=18.0.0"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/yourusername/mcp-remote-with-okta.git"
+    "url": "git+https://github.com/adobe-rnd/mcp-remote-with-okta.git"
   },
   "bugs": {
-    "url": "https://github.com/yourusername/mcp-remote-with-okta/issues"
+    "url": "https://github.com/adobe-rnd/mcp-remote-with-okta/issues"
   },
-  "homepage": "https://github.com/yourusername/mcp-remote-with-okta#readme",
+  "homepage": "https://github.com/adobe-rnd/mcp-remote-with-okta#readme",
   "dependencies": {}
 } 
