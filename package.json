@@ -7,7 +7,11 @@
     "mcp-remote-with-okta": "./index.js"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "lint": "eslint index.js",
+    "lint:fix": "eslint index.js --fix"
   },
   "keywords": [
     "mcp",
@@ -36,5 +40,20 @@
   "homepage": "https://github.com/adobe-rnd/mcp-remote-with-okta#readme",
   "dependencies": {
     "mcp-remote": "^0.1.12"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "eslint": "^8.57.0"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "collectCoverageFrom": [
+      "index.js"
+    ],
+    "coverageReporters": [
+      "text",
+      "lcov",
+      "html"
+    ]
   }
 } 

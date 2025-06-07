@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
+const https = require('https');
 const { URL } = require('url');
 const { spawn } = require('child_process');
 const os = require('os');
@@ -23,6 +24,7 @@ class AdobeMCPWrapper {
     // Adobe IMS configuration using environment variables
     this.clientId = process.env.ADOBE_CLIENT_ID;
     this.scope = process.env.ADOBE_SCOPE || 'AdobeID,openid';
+    this.authMethod = process.env.ADOBE_AUTH_METHOD || 'jwt'; // 'jwt' or 'access_token'
     this.redirectUri = 'http://localhost:8080/callback';
 
     this.authUrl = 'https://ims-na1.adobelogin.com/ims/authorize/v2';
@@ -98,9 +100,221 @@ class AdobeMCPWrapper {
     return (expirationTime - now) < (5 * 60 * 1000);
   }
 
+  // Check if JWT token is expired
+  static isJWTExpired(tokens) {
+    if (!tokens || !tokens.jwt_token || !tokens.jwt_timestamp) return true;
+
+    const jwtExpiresIn = parseInt(tokens.jwt_expires_in, 10) || 3600; // Default 1 hour
+    const jwtExpirationTime = tokens.jwt_timestamp + (jwtExpiresIn * 1000);
+    const now = Date.now();
+
+    // Consider JWT token expired if it expires within the next 5 minutes
+    return (jwtExpirationTime - now) < (5 * 60 * 1000);
+  }
+
+  // Exchange access token for JWT token
+  async exchangeForJWT(accessToken) {
+    return new Promise((resolve, reject) => {
+      try {
+        // Extract base URL from mcpRemoteUrl
+        const mcpUrl = new URL(this.mcpRemoteUrl);
+        const jwtEndpoint = `${mcpUrl.origin}/api/v1/auth/login`;
+
+        this.output('🔄 Exchanging access token for JWT...', true);
+        this.output(`📍 JWT endpoint: ${jwtEndpoint}`, true);
+        this.output(`🔑 Access token (first 20 chars): ${accessToken.substring(0, 20)}...`, true);
+
+        // Decode and display JWT payload for debugging
+        try {
+          const [header, payload] = accessToken.split('.');
+          const decodedHeader = JSON.parse(Buffer.from(header, 'base64').toString());
+          const decodedPayload = JSON.parse(Buffer.from(payload, 'base64').toString());
+
+          this.output(`🔍 Token header: ${JSON.stringify(decodedHeader)}`, true);
+          this.output(`🔍 Token payload (client_id): ${decodedPayload.client_id}`, true);
+          this.output(`🔍 Token payload (scope): ${decodedPayload.scope}`, true);
+          const createdAt = decodedPayload.created_at * 1000;
+          const expiresIn = parseInt(decodedPayload.expires_in, 10) * 1000;
+          const expirationDate = new Date(createdAt + expiresIn);
+          this.output(`🔍 Token payload (expires): ${expirationDate.toISOString()}`, true);
+        } catch (decodeError) {
+          this.output(`⚠️ Could not decode token for debugging: ${decodeError.message}`, true);
+        }
+
+        const url = new URL(jwtEndpoint);
+        const postData = JSON.stringify({
+          accessToken,
+        });
+
+        const options = {
+          hostname: url.hostname,
+          port: url.port || (url.protocol === 'https:' ? 443 : 80),
+          path: url.pathname,
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(postData),
+            'User-Agent': 'mcp-remote-with-okta/1.0.0',
+          },
+        };
+
+        this.output(`📤 Making request to: ${options.hostname}${options.path}`, true);
+        this.output(`📤 Request headers: ${JSON.stringify(options.headers, null, 2)}`, true);
+        this.output(`📤 Request body length: ${postData.length}`, true);
+
+        const req = https.request(options, (res) => {
+          let data = '';
+          res.on('data', (chunk) => {
+            data += chunk;
+          });
+          res.on('end', () => {
+            try {
+              this.output(`📥 JWT exchange response status: ${res.statusCode}`, true);
+              this.output(`📥 JWT exchange response headers: ${JSON.stringify(res.headers)}`, true);
+              this.output(`📥 JWT exchange response body: ${data}`, true);
+
+              // Log invocation ID for server-side debugging
+              if (res.headers['x-invocation-id']) {
+                const invocationId = res.headers['x-invocation-id'];
+                const message = `🔍 Server invocation ID: ${invocationId}`;
+                this.output(message, true);
+              }
+
+              if (res.statusCode !== 200) {
+                reject(new Error(`JWT exchange failed with status ${res.statusCode}: ${data}`));
+                return;
+              }
+
+              const jwtData = JSON.parse(data);
+
+              if (!jwtData.token && !jwtData.jwt && !jwtData.access_token
+                && !jwtData.sessionToken) {
+                const fields = Object.keys(jwtData).join(', ');
+                this.output(`❌ No JWT token found in response. Available fields: ${fields}`, true);
+                reject(new Error('No JWT token found in response'));
+                return;
+              }
+
+              this.output('✅ Successfully exchanged access token for JWT', true);
+              // Use whichever field contains the JWT token
+              const jwtToken = jwtData.sessionToken || jwtData.token
+                               || jwtData.jwt || jwtData.access_token;
+
+              resolve(jwtToken);
+            } catch (parseError) {
+              this.output(`❌ Failed to parse JWT response: ${parseError.message}`, true);
+              reject(new Error(`Failed to parse JWT response: ${parseError.message}`));
+            }
+          });
+        });
+
+        req.on('error', (error) => {
+          this.output(`❌ JWT exchange request failed: ${error.message}`, true);
+          reject(new Error(`JWT exchange request failed: ${error.message}`));
+        });
+
+        req.write(postData);
+        req.end();
+      } catch (error) {
+        this.output(`❌ JWT exchange failed: ${error.message}`, true);
+        reject(new Error(`JWT exchange failed: ${error.message}`));
+      }
+    });
+  }
+
+  // Test JWT exchange with different formats
+  async testJWTExchange(accessToken, format) {
+    return new Promise((resolve, reject) => {
+      try {
+        const mcpUrl = new URL(this.mcpRemoteUrl);
+        const jwtEndpoint = `${mcpUrl.origin}/api/v1/auth/login`;
+        const url = new URL(jwtEndpoint);
+
+        let postData; let
+          options;
+
+        if (format === 'header') {
+          // Test with Authorization header
+          postData = JSON.stringify({});
+          options = {
+            hostname: url.hostname,
+            port: url.port || (url.protocol === 'https:' ? 443 : 80),
+            path: url.pathname,
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              'Content-Type': 'application/json',
+              'Content-Length': Buffer.byteLength(postData),
+            },
+          };
+        } else if (format === 'access_token') {
+          // Test with access_token field name
+          postData = JSON.stringify({
+            access_token: accessToken,
+          });
+          options = {
+            hostname: url.hostname,
+            port: url.port || (url.protocol === 'https:' ? 443 : 80),
+            path: url.pathname,
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Content-Length': Buffer.byteLength(postData),
+            },
+          };
+        } else if (format === 'extra_headers') {
+          // Test with additional headers
+          postData = JSON.stringify({});
+          options = {
+            hostname: url.hostname,
+            port: url.port || (url.protocol === 'https:' ? 443 : 80),
+            path: url.pathname,
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Content-Length': Buffer.byteLength(postData),
+              'User-Agent': 'mcp-remote-with-okta/1.0.0',
+            },
+          };
+        }
+
+        const req = https.request(options, (res) => {
+          let data = '';
+          res.on('data', (chunk) => {
+            data += chunk;
+          });
+          res.on('end', () => {
+            this.output(`Response status: ${res.statusCode}`, true);
+            this.output(`Response body: ${data}`, true);
+            if (res.headers['x-invocation-id']) {
+              this.output(`Invocation ID: ${res.headers['x-invocation-id']}`, true);
+            }
+
+            if (res.statusCode === 200) {
+              this.output(`✅ ${format} format worked!`, true);
+              resolve(data);
+            } else {
+              reject(new Error(`${format} format failed with status ${res.statusCode}: ${data}`));
+            }
+          });
+        });
+
+        req.on('error', (error) => {
+          reject(new Error(`Request failed: ${error.message}`));
+        });
+
+        req.write(postData);
+        req.end();
+      } catch (error) {
+        reject(new Error(`Test failed: ${error.message}`));
+      }
+    });
+  }
+
   // Start OAuth implicit flow
   async startAuthFlow() {
     if (!this.clientId) {
+      // eslint-disable-next-line max-len
       throw new Error('Client ID not found. Please add ADOBE_CLIENT_ID to your MCP config environment variables.');
     }
 
@@ -274,14 +488,14 @@ class AdobeMCPWrapper {
     let command;
 
     switch (platform) {
-      case 'darwin':
-        command = 'open';
-        break;
-      case 'win32':
-        command = 'start';
-        break;
-      default:
-        command = 'xdg-open';
+    case 'darwin':
+      command = 'open';
+      break;
+    case 'win32':
+      command = 'start';
+      break;
+    default:
+      command = 'xdg-open';
     }
 
     try {
@@ -312,25 +526,71 @@ class AdobeMCPWrapper {
     }
   }
 
+  // Get valid JWT token (exchanges access token for JWT if needed)
+  async getValidJWT() {
+    try {
+      // First check if we have a valid cached JWT token
+      const storedTokens = this.loadTokens();
+
+      if (storedTokens && !AdobeMCPWrapper.isJWTExpired(storedTokens)) {
+        this.output('✅ Using valid stored JWT token', true);
+        return storedTokens.jwt_token;
+      }
+
+      this.output('🔄 JWT token expired or not found, exchanging access token...', true);
+
+      // Get the access token
+      const accessToken = await this.getValidToken();
+
+      // Exchange it for a JWT
+      const jwtToken = await this.exchangeForJWT(accessToken);
+
+      // Save the JWT token along with existing tokens
+      const tokensToSave = {
+        ...(storedTokens || {}),
+        jwt_token: jwtToken,
+        jwt_timestamp: Date.now(),
+        jwt_expires_in: '3600', // Default to 1 hour, could be extracted from JWT if needed
+      };
+
+      this.saveTokens(tokensToSave);
+
+      return jwtToken;
+    } catch (error) {
+      this.output(`❌ Failed to get JWT token: ${error.message}`, true);
+      throw error;
+    }
+  }
+
   // Launch MCP remote with authentication
   async launchMCP() {
     try {
       this.output('🔐 Adobe MCP Wrapper (Implicit Flow) starting...', true);
       // Check if required environment variables are available
       if (!this.clientId) {
+      // eslint-disable-next-line max-len
         throw new Error('ADOBE_CLIENT_ID environment variable not found. Please check your MCP configuration.');
       }
 
-      // Get valid access token
-      const accessToken = await this.getValidToken();
+      let authToken;
+      if (this.authMethod === 'access_token') {
+        this.output('🔑 Using direct access token authentication...', true);
+        authToken = await this.getValidToken();
+        this.output('✅ Got access token for direct authentication', true);
+      } else {
+        this.output('🔄 Using JWT exchange authentication...', true);
+        // Get valid JWT token (this will handle access token exchange)
+        authToken = await this.getValidJWT();
+        this.output('✅ Got JWT token for authentication', true);
+      }
 
-      this.output('🚀 Launching MCP remote with implicit grant authentication...', true);
+      this.output('🚀 Launching MCP remote with authentication...', true);
 
       // Prepare command with authentication header
       const command = this.mcpArgs[0];
       const args = [
         ...this.mcpArgs.slice(1),
-        '--header', `Authorization:Bearer ${accessToken}`,
+        '--header', `Authorization:Bearer ${authToken}`,
       ];
 
       // Launch MCP remote process
@@ -368,82 +628,215 @@ class AdobeMCPWrapper {
 
     try {
       switch (command) {
-        case 'authenticate': {
-          const token = await this.getValidToken();
-          this.output('\n🎉 User authentication completed successfully!');
-          this.output(`🔑 Access Token: ${token.substring(0, 20)}...`);
-          break;
-        }
+      case 'authenticate': {
+        const token = await this.getValidToken();
+        this.output('\n🎉 User authentication completed successfully!');
+        this.output(`🔑 Access Token: ${token.substring(0, 20)}...`);
+        break;
+      }
 
-        case 'status': {
-          const tokens = this.loadTokens();
-          if (tokens) {
-            const isExpired = AdobeMCPWrapper.isTokenExpired(tokens);
-            this.output(`📊 Token Status: ${isExpired ? '❌ Expired' : '✅ Valid'}`);
-            if (tokens.timestamp) {
-              const expiresIn = parseInt(tokens.expires_in, 10) || 3600;
-              const expirationTime = new Date(tokens.timestamp + (expiresIn * 1000));
-              this.output(`⏰ Expires at: ${expirationTime.toLocaleString()}`);
+      case 'status': {
+        const tokens = this.loadTokens();
+        if (tokens) {
+          const isExpired = AdobeMCPWrapper.isTokenExpired(tokens);
+          this.output(`📊 Access Token Status: ${isExpired ? '❌ Expired' : '✅ Valid'}`);
+          if (tokens.timestamp) {
+            const expiresIn = parseInt(tokens.expires_in, 10) || 3600;
+            const expirationTime = new Date(tokens.timestamp + (expiresIn * 1000));
+            this.output(`⏰ Access Token Expires at: ${expirationTime.toLocaleString()}`);
+          }
+
+          // Show JWT token status if available
+          if (tokens.jwt_token) {
+            const isJWTExpired = AdobeMCPWrapper.isJWTExpired(tokens);
+            this.output(`📊 JWT Token Status: ${isJWTExpired ? '❌ Expired' : '✅ Valid'}`);
+            if (tokens.jwt_timestamp) {
+              const jwtExpiresIn = parseInt(tokens.jwt_expires_in, 10) || 3600;
+              const jwtExpirationTime = new Date(tokens.jwt_timestamp + (jwtExpiresIn * 1000));
+              this.output(`⏰ JWT Token Expires at: ${jwtExpirationTime.toLocaleString()}`);
             }
           } else {
-            this.output('📊 Token Status: ❌ No token found');
+            this.output('📊 JWT Token Status: ❌ No JWT token cached');
           }
-          break;
+        } else {
+          this.output('📊 Token Status: ❌ No tokens found');
+        }
+        break;
+      }
+
+      case 'token': {
+        const validToken = await this.getValidToken();
+        this.output(`🔑 Access Token: ${validToken.substring(0, 20)}...`);
+        break;
+      }
+
+      case 'jwt': {
+        const jwtToken = await this.getValidJWT();
+        this.output(`🔑 JWT Token: ${jwtToken.substring(0, 20)}...`);
+        break;
+      }
+
+      case 'auth-type': {
+        this.output(`🔧 Current authentication type: ${this.authMethod}`);
+        this.output('Available types:');
+        this.output('  - jwt: Exchange access token for JWT (default)');
+        this.output('  - access_token: Use access token directly');
+        this.output('\nTo change: Set ADOBE_AUTH_METHOD environment variable');
+        break;
+      }
+
+      case 'test-auth': {
+        this.output(`🧪 Testing current authentication type: ${this.authMethod}\n`);
+
+        if (this.authMethod === 'access_token') {
+          this.output('Testing direct access token...');
+          try {
+            const accessToken = await this.getValidToken();
+            this.output(`✅ Got access token: ${accessToken.substring(0, 20)}...`);
+          } catch (error) {
+            this.output(`❌ Access token test failed: ${error.message}`);
+          }
+        } else {
+          this.output('Testing JWT exchange...');
+          try {
+            const jwtToken = await this.getValidJWT();
+            this.output(`✅ Got JWT token: ${jwtToken.substring(0, 20)}...`);
+          } catch (error) {
+            this.output(`❌ JWT test failed: ${error.message}`);
+          }
+        }
+        break;
+      }
+
+      case 'test-jwt': {
+        const accessToken = await this.getValidToken();
+        this.output('🧪 Testing different JWT exchange formats...\n');
+
+        // Test 1: Current format
+        this.output('Test 1: Current format (accessToken in body)');
+        try {
+          await this.exchangeForJWT(accessToken);
+        } catch (error) {
+          this.output(`❌ Test 1 failed: ${error.message}\n`);
         }
 
-        case 'token': {
-          const validToken = await this.getValidToken();
-          this.output(`🔑 Access Token: ${validToken}`);
-          break;
+        // Test 2: Try with Authorization header instead
+        this.output('Test 2: Access token in Authorization header');
+        try {
+          await this.testJWTExchange(accessToken, 'header');
+        } catch (error) {
+          this.output(`❌ Test 2 failed: ${error.message}\n`);
         }
 
-        case 'clear':
-          if (fs.existsSync(this.tokenFile)) {
-            fs.unlinkSync(this.tokenFile);
-            this.output('🗑️ Stored tokens cleared');
-          } else {
-            this.output('ℹ️ No stored tokens to clear');
-          }
-          break;
+        // Test 3: Try with different field name
+        this.output('Test 3: Different field name (access_token)');
+        try {
+          await this.testJWTExchange(accessToken, 'access_token');
+        } catch (error) {
+          this.output(`❌ Test 3 failed: ${error.message}\n`);
+        }
 
-        case 'mcp':
-          // Launch in MCP mode
-          this.isMCPMode = true;
-          this.silent = true;
-          await this.launchMCP();
-          break;
+        // Test 4: Try with additional headers
+        this.output('Test 4: With additional headers');
+        try {
+          await this.testJWTExchange(accessToken, 'extra_headers');
+        } catch (error) {
+          this.output(`❌ Test 4 failed: ${error.message}\n`);
+        }
 
-        case 'help':
-        default:
-          this.output('📚 Available commands:');
-          this.output('  authenticate - Authenticate user and get token');
-          this.output('  status       - Check token status');
-          this.output('  token        - Display current valid token');
-          this.output('  clear        - Clear stored tokens');
-          this.output('  mcp          - Launch MCP remote with authentication');
-          this.output('  help         - Show this help message');
-          this.output('\n🔧 Usage:');
-          this.output('  npx mcp-remote-with-okta <mcp-url> <command>');
-          this.output('  npx mcp-remote-with-okta <mcp-url>  # Launch as MCP server');
-          this.output('\n🔑 Environment Variables:');
-          this.output('  ADOBE_CLIENT_ID     - Required: Client ID for Adobe IMS (Implicit Grant)');
-          this.output('  ADOBE_SCOPE         - Optional: OAuth scope (default: AdobeID,openid)');
-          this.output('\n💡 Example MCP config (Implicit Grant):');
-          this.output('  {');
-          this.output('    "mcpServers": {');
-          this.output('      "my-mcp-server": {');
-          this.output('        "command": "npx",');
-          this.output('        "args": [');
-          this.output('          "mcp-remote-with-okta",');
-          this.output('          "https://your-mcp-server.com/mcp"');
-          this.output('        ],');
-          this.output('        "env": {');
-          this.output('          "ADOBE_CLIENT_ID": "your_client_id_here",');
-          this.output('          "ADOBE_SCOPE": "AdobeID,openid"  // Optional: defaults to AdobeID,openid');
-          this.output('        }');
-          this.output('      }');
-          this.output('    }');
-          this.output('  }');
+        break;
+      }
+
+      case 'clear':
+        if (fs.existsSync(this.tokenFile)) {
+          fs.unlinkSync(this.tokenFile);
+          this.output('🗑️ Stored tokens cleared');
+        } else {
+          this.output('ℹ️ No stored tokens to clear');
+        }
+        break;
+
+      case 'clear-jwt': {
+        const tokens = this.loadTokens();
+        if (tokens && tokens.jwt_token) {
+          // Remove JWT-related fields while keeping access token
+          const {
+            jwt_token: jwtToken,
+            jwt_timestamp: jwtTimestamp,
+            jwt_expires_in: jwtExpiresIn,
+            ...remainingTokens
+          } = tokens;
+          this.saveTokens(remainingTokens);
+          this.output('🗑️ JWT token cleared (access token preserved)');
+        } else {
+          this.output('ℹ️ No JWT token to clear');
+        }
+        break;
+      }
+
+      case 'mcp':
+        // Launch in MCP mode
+        this.isMCPMode = true;
+        this.silent = true;
+        await this.launchMCP();
+        break;
+
+      case 'help':
+      default:
+        this.output('📚 Available commands:');
+        this.output('  authenticate - Authenticate user and get token');
+        this.output('  status       - Check token status');
+        this.output('  token        - Display current valid token');
+        this.output('  jwt          - Display current valid JWT token');
+        this.output('  auth-type    - Show current authentication type');
+        this.output('  test-auth    - Test current authentication method');
+        this.output('  test-jwt     - Test different JWT exchange formats');
+        this.output('  clear        - Clear stored tokens');
+        this.output('  clear-jwt    - Clear JWT token (keep access token)');
+        this.output('  mcp          - Launch MCP remote with authentication');
+        this.output('  help         - Show this help message');
+        this.output('\n🔧 Usage:');
+        this.output('  npx mcp-remote-with-okta <mcp-url> <command>');
+        this.output('  npx mcp-remote-with-okta <mcp-url>  # Launch as MCP server');
+        this.output('\n🔑 Environment Variables:');
+        this.output('  ADOBE_CLIENT_ID     - Required: Client ID for Adobe IMS (Implicit Grant)');
+        this.output('  ADOBE_SCOPE         - Optional: OAuth scope (default: AdobeID,openid)');
+        this.output('  ADOBE_AUTH_METHOD   - Optional: Authentication type (default: jwt)');
+        this.output('                        Values: jwt, access_token');
+        this.output('\n💡 Example MCP config (JWT Authentication):');
+        this.output('  {');
+        this.output('    "mcpServers": {');
+        this.output('      "my-mcp-server": {');
+        this.output('        "command": "npx",');
+        this.output('        "args": [');
+        this.output('          "mcp-remote-with-okta",');
+        this.output('          "https://your-mcp-server.com/mcp"');
+        this.output('        ],');
+        this.output('        "env": {');
+        this.output('          "ADOBE_CLIENT_ID": "your_client_id_here",');
+        // eslint-disable-next-line max-len
+        this.output('          "ADOBE_SCOPE": "AdobeID,openid",  // Optional: defaults to AdobeID,openid');
+        this.output('          "ADOBE_AUTH_METHOD": "jwt"  // Optional: defaults to jwt');
+        this.output('        }');
+        this.output('      }');
+        this.output('    }');
+        this.output('  }');
+        this.output('\n💡 Example MCP config (Direct Access Token):');
+        this.output('  {');
+        this.output('    "mcpServers": {');
+        this.output('      "my-mcp-server": {');
+        this.output('        "command": "npx",');
+        this.output('        "args": [');
+        this.output('          "mcp-remote-with-okta",');
+        this.output('          "https://your-mcp-server.com/mcp"');
+        this.output('        ],');
+        this.output('        "env": {');
+        this.output('          "ADOBE_CLIENT_ID": "your_client_id_here",');
+        this.output('          "ADOBE_AUTH_METHOD": "access_token"');
+        this.output('        }');
+        this.output('      }');
+        this.output('    }');
+        this.output('  }');
       }
     } catch (error) {
       this.output(`\n❌ Error: ${error.message}`, true);
@@ -480,7 +873,8 @@ async function main() {
     console.log('  npx mcp-remote-with-okta <mcp-url> <command>');
     console.log('  npx mcp-remote-with-okta <mcp-url>  # Launch as MCP server');
     console.log('');
-    console.log('Commands: authenticate, status, token, clear, mcp, help');
+    console.log('Commands: authenticate, jwt, mcp, status, token, auth-type,');
+    console.log('          test-auth, test-jwt, clear, clear-jwt, help');
     process.exit(1);
   }
 }
