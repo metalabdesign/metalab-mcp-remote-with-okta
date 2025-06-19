@@ -25,9 +25,11 @@ class AdobeMCPWrapper {
     this.clientId = process.env.ADOBE_CLIENT_ID;
     this.scope = process.env.ADOBE_SCOPE || 'AdobeID,openid';
     this.authMethod = process.env.ADOBE_AUTH_METHOD || 'jwt'; // 'jwt' or 'access_token'
+    this.imsEnvironment = process.env.ADOBE_IMS_ENV || 'prod'; // 'prod' or 'stage'
     this.redirectUri = 'http://localhost:8080/callback';
 
-    this.authUrl = 'https://ims-na1.adobelogin.com/ims/authorize/v2';
+    // Set IMS auth URL based on environment
+    this.authUrl = this.getImsAuthUrl();
 
     // MCP configuration
     this.mcpRemoteUrl = mcpRemoteUrl || 'https://spacecat.experiencecloud.live/api/v1/mcp';
@@ -41,6 +43,44 @@ class AdobeMCPWrapper {
     // Silent mode for MCP integration
     this.silent = options.silent || false;
     this.isMCPMode = options.isMCPMode || false;
+  }
+
+  // Get IMS auth URL based on environment
+  getImsAuthUrl() {
+    switch (this.imsEnvironment.toLowerCase()) {
+    case 'stage':
+    case 'stg':
+      return 'https://ims-na1-stg1.adobelogin.com/ims/authorize/v2';
+    case 'dev':
+    case 'development':
+      return 'https://ims-na1-dev.adobelogin.com/ims/authorize/v2';
+    case 'qa':
+    case 'test':
+      return 'https://ims-na1-qa.adobelogin.com/ims/authorize/v2';
+    case 'prod':
+    case 'production':
+    default:
+      return 'https://ims-na1.adobelogin.com/ims/authorize/v2';
+    }
+  }
+
+  // Get IMS environment display name
+  getImsEnvironmentName() {
+    switch (this.imsEnvironment.toLowerCase()) {
+    case 'stage':
+    case 'stg':
+      return 'Stage';
+    case 'dev':
+    case 'development':
+      return 'Development';
+    case 'qa':
+    case 'test':
+      return 'QA/Test';
+    case 'prod':
+    case 'production':
+    default:
+      return 'Production';
+    }
   }
 
   // Output method that respects silent mode and routes to stderr in MCP mode
@@ -331,7 +371,8 @@ class AdobeMCPWrapper {
 
     const authUrlWithParams = `${this.authUrl}?${authParams.toString()}`;
 
-    this.output('🚀 Starting Adobe implicit grant authentication flow...', true);
+    const envName = this.getImsEnvironmentName();
+    this.output(`🚀 Starting Adobe implicit grant authentication flow (${envName})...`, true);
     this.output('📱 Opening browser for user authentication...', true);
 
     // Open browser
@@ -565,7 +606,8 @@ class AdobeMCPWrapper {
   // Launch MCP remote with authentication
   async launchMCP() {
     try {
-      this.output('🔐 Adobe MCP Wrapper (Implicit Flow) starting...', true);
+      const envName = this.getImsEnvironmentName();
+      this.output(`🔐 Adobe MCP Wrapper (Implicit Flow) starting (${envName})...`, true);
       // Check if required environment variables are available
       if (!this.clientId) {
       // eslint-disable-next-line max-len
@@ -636,6 +678,7 @@ class AdobeMCPWrapper {
       }
 
       case 'status': {
+        this.output(`🌐 IMS Environment: ${this.getImsEnvironmentName()}`);
         const tokens = this.loadTokens();
         if (tokens) {
           const isExpired = AdobeMCPWrapper.isTokenExpired(tokens);

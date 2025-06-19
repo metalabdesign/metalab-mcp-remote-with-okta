@@ -1910,3 +1910,182 @@ describe('StartAuthFlow Server Callbacks', () => {
     });
   });
 });
+
+describe('Adobe IMS Environment Support', () => {
+  describe('Environment URL Generation', () => {
+    const testCases = [
+      {
+        env: 'prod',
+        expectedUrl: 'https://ims-na1.adobelogin.com/ims/authorize/v2',
+        expectedName: 'Production',
+      },
+      {
+        env: 'production',
+        expectedUrl: 'https://ims-na1.adobelogin.com/ims/authorize/v2',
+        expectedName: 'Production',
+      },
+      {
+        env: 'stage',
+        expectedUrl: 'https://ims-na1-stg1.adobelogin.com/ims/authorize/v2',
+        expectedName: 'Stage',
+      },
+      {
+        env: 'stg',
+        expectedUrl: 'https://ims-na1-stg1.adobelogin.com/ims/authorize/v2',
+        expectedName: 'Stage',
+      },
+      {
+        env: 'dev',
+        expectedUrl: 'https://ims-na1-dev.adobelogin.com/ims/authorize/v2',
+        expectedName: 'Development',
+      },
+      {
+        env: 'development',
+        expectedUrl: 'https://ims-na1-dev.adobelogin.com/ims/authorize/v2',
+        expectedName: 'Development',
+      },
+      {
+        env: 'qa',
+        expectedUrl: 'https://ims-na1-qa.adobelogin.com/ims/authorize/v2',
+        expectedName: 'QA/Test',
+      },
+      {
+        env: 'test',
+        expectedUrl: 'https://ims-na1-qa.adobelogin.com/ims/authorize/v2',
+        expectedName: 'QA/Test',
+      },
+    ];
+
+    test.each(testCases)(
+      'should generate correct URL for environment "$env"',
+      ({ env, expectedUrl, expectedName }) => {
+        const wrapper = new AdobeMCPWrapper('http://test.com', { silent: true });
+        wrapper.imsEnvironment = env;
+
+        expect(wrapper.getImsAuthUrl()).toBe(expectedUrl);
+        expect(wrapper.getImsEnvironmentName()).toBe(expectedName);
+      },
+    );
+
+    test('should default to production for unknown environments', () => {
+      const wrapper = new AdobeMCPWrapper('http://test.com', { silent: true });
+      wrapper.imsEnvironment = 'unknown';
+
+      const expectedUrl = 'https://ims-na1.adobelogin.com/ims/authorize/v2';
+      expect(wrapper.getImsAuthUrl()).toBe(expectedUrl);
+      expect(wrapper.getImsEnvironmentName()).toBe('Production');
+    });
+
+    test('should handle case-insensitive environment names', () => {
+      const wrapper = new AdobeMCPWrapper('http://test.com', { silent: true });
+
+      wrapper.imsEnvironment = 'STAGE';
+      const stageUrl = 'https://ims-na1-stg1.adobelogin.com/ims/authorize/v2';
+      expect(wrapper.getImsAuthUrl()).toBe(stageUrl);
+
+      wrapper.imsEnvironment = 'Production';
+      const prodUrl = 'https://ims-na1.adobelogin.com/ims/authorize/v2';
+      expect(wrapper.getImsAuthUrl()).toBe(prodUrl);
+    });
+  });
+
+  describe('Environment Variable Integration', () => {
+    const originalEnv = process.env;
+
+    beforeEach(() => {
+      process.env = { ...originalEnv };
+    });
+
+    afterEach(() => {
+      process.env = originalEnv;
+    });
+
+    test('should use default prod environment', () => {
+      delete process.env.ADOBE_IMS_ENV;
+      const wrapper = new AdobeMCPWrapper('http://test.com', { silent: true });
+
+      expect(wrapper.imsEnvironment).toBe('prod');
+      expect(wrapper.getImsEnvironmentName()).toBe('Production');
+    });
+
+    test('should respect ADOBE_IMS_ENV environment variable', () => {
+      process.env.ADOBE_IMS_ENV = 'stage';
+      const wrapper = new AdobeMCPWrapper('http://test.com', { silent: true });
+
+      expect(wrapper.imsEnvironment).toBe('stage');
+      expect(wrapper.getImsEnvironmentName()).toBe('Stage');
+    });
+  });
+
+  describe('Constructor Integration', () => {
+    const originalEnv = process.env;
+
+    beforeEach(() => {
+      process.env = { ...originalEnv };
+    });
+
+    afterEach(() => {
+      process.env = originalEnv;
+    });
+
+    test('should set authUrl correctly in constructor', () => {
+      process.env.ADOBE_IMS_ENV = 'stage';
+      const wrapper = new AdobeMCPWrapper('http://test.com', { silent: true });
+
+      const expectedUrl = 'https://ims-na1-stg1.adobelogin.com/ims/authorize/v2';
+      expect(wrapper.authUrl).toBe(expectedUrl);
+    });
+
+    test('should update URL when environment changes after construction', () => {
+      delete process.env.ADOBE_IMS_ENV; // Ensure we start with default
+      const wrapper = new AdobeMCPWrapper('http://test.com', { silent: true });
+
+      // Initially production
+      const prodUrl = 'https://ims-na1.adobelogin.com/ims/authorize/v2';
+      expect(wrapper.getImsAuthUrl()).toBe(prodUrl);
+
+      // Change to stage
+      wrapper.imsEnvironment = 'stage';
+      const stageUrl = 'https://ims-na1-stg1.adobelogin.com/ims/authorize/v2';
+      expect(wrapper.getImsAuthUrl()).toBe(stageUrl);
+
+      // Change to dev
+      wrapper.imsEnvironment = 'dev';
+      const devUrl = 'https://ims-na1-dev.adobelogin.com/ims/authorize/v2';
+      expect(wrapper.getImsAuthUrl()).toBe(devUrl);
+    });
+  });
+
+  describe('All Environment Mapping', () => {
+    test('should correctly map all supported environments', () => {
+      const environments = {
+        // Production variants
+        prod: { url: 'https://ims-na1.adobelogin.com/ims/authorize/v2', name: 'Production' },
+        production: { url: 'https://ims-na1.adobelogin.com/ims/authorize/v2', name: 'Production' },
+
+        // Stage variants
+        stage: { url: 'https://ims-na1-stg1.adobelogin.com/ims/authorize/v2', name: 'Stage' },
+        stg: { url: 'https://ims-na1-stg1.adobelogin.com/ims/authorize/v2', name: 'Stage' },
+
+        // Development variants
+        dev: { url: 'https://ims-na1-dev.adobelogin.com/ims/authorize/v2', name: 'Development' },
+        development: {
+          url: 'https://ims-na1-dev.adobelogin.com/ims/authorize/v2',
+          name: 'Development',
+        },
+
+        // QA/Test variants
+        qa: { url: 'https://ims-na1-qa.adobelogin.com/ims/authorize/v2', name: 'QA/Test' },
+        test: { url: 'https://ims-na1-qa.adobelogin.com/ims/authorize/v2', name: 'QA/Test' },
+      };
+
+      Object.entries(environments).forEach(([env, expected]) => {
+        const wrapper = new AdobeMCPWrapper('http://test.com', { silent: true });
+        wrapper.imsEnvironment = env;
+
+        expect(wrapper.getImsAuthUrl()).toBe(expected.url);
+        expect(wrapper.getImsEnvironmentName()).toBe(expected.name);
+      });
+    });
+  });
+});
