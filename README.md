@@ -1,17 +1,16 @@
-# MCP Remote with Okta/Adobe IMS Authentication
+# MCP Remote with Adobe IMS Authentication
 
-A wrapper for `mcp-remote` that handles Adobe IMS/Okta user authentication using implicit grant flow, eliminating the need for manual token management.
+A wrapper for `mcp-remote` that handles Adobe IMS authentication using OAuth implicit flow, providing seamless authentication for Adobe-protected MCP servers.
 
 ## Features
 
-- 🔐 **Automatic User Authentication**: Handles Adobe IMS OAuth implicit grant flow
-- 🔄 **Token Management**: Automatically refreshes expired tokens (1-hour lifetime)
+- 🔐 **OAuth Implicit Flow**: Implements Adobe's OAuth implicit flow for secure user authentication
+- 🔄 **Token Management**: Automatic token storage, validation, and expiration handling
 - 🖥️ **Cross-Platform**: Works on macOS, Windows, and Linux
 - 🚀 **Zero Maintenance**: Set it once, never worry about tokens again
-- 🔧 **Configurable**: Support for custom client IDs, scopes, and MCP URLs
-- 📱 **Browser Integration**: Opens browser automatically for user authentication
-- 🔒 **Secure Storage**: Tokens stored securely in `~/.cursor/`
-- 🔑 **Simple Setup**: No client secret required - works with implicit grant
+- 🔧 **Configurable**: Support for multiple environments, scopes, and authentication methods
+- 🔒 **Secure Storage**: Tokens stored securely in user's home directory
+- 🎯 **Production Ready**: Battle-tested OAuth implementation with robust error handling
 
 ## Installation
 
@@ -34,8 +33,14 @@ mcp-remote-with-okta <mcp-url>
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `ADOBE_CLIENT_ID` | ✅ Required | - | Client ID for Adobe IMS (Implicit Grant) |
+| `ADOBE_CLIENT_ID` | ✅ Required | - | Client ID for Adobe IMS |
 | `ADOBE_SCOPE` | Optional | `AdobeID,openid` | OAuth scope for Adobe IMS |
+| `ADOBE_AUTH_METHOD` | Optional | `jwt` | Authentication method (`jwt` or `access_token`) |
+| `ADOBE_IMS_ENV` | Optional | `prod` | IMS environment (`prod`, `stage`, `dev`) |
+| `ADOBE_REDIRECT_URI` | Optional | `http://localhost:8080/callback` | OAuth redirect URI |
+| `ADOBE_DEBUG` | Optional | `false` | Enable debug mode for troubleshooting |
+| `ADOBE_AUTO_REFRESH` | Optional | `true` | Enable automatic token refresh |
+| `ADOBE_REFRESH_THRESHOLD` | Optional | `10` | Auto-refresh threshold in minutes |
 
 ### MCP Configuration
 
@@ -51,7 +56,8 @@ Add to your `~/.cursor/mcp.json`:
         "https://your-mcp-server.com/mcp"
       ],
       "env": {
-        "ADOBE_CLIENT_ID": "your_client_id_here"
+        "ADOBE_CLIENT_ID": "your_client_id_here",
+        "ADOBE_IMS_ENV": "prod"
       }
     }
   }
@@ -91,27 +97,39 @@ npx mcp-remote-with-okta <mcp-url> help
 
 ## How It Works
 
-1. **Token Check**: Script checks for valid stored tokens in `~/.cursor/adobe-tokens.json`
-2. **User Authentication**: If no valid token exists, launches OAuth implicit flow:
-   - Opens browser to Adobe IMS login page
-   - User logs in with their Adobe ID
-   - Adobe IMS redirects to `localhost:8080` with token in URL fragment
-   - JavaScript extracts token and sends to local server
-3. **Token Storage**: Securely stores tokens with expiration tracking
-4. **MCP Launch**: Launches `mcp-remote` with `Authorization: Bearer <token>` header
-5. **Auto-Refresh**: Automatically refreshes tokens when they expire (every hour)
+This wrapper implements Adobe's OAuth implicit flow for authentication:
+
+1. **OAuth Setup**: Configures OAuth parameters for Adobe IMS
+2. **Browser Authentication**: Opens browser for secure user authentication
+3. **Token Capture**: Local HTTP server captures OAuth callback with tokens
+4. **Token Storage**: Securely stores tokens with expiration tracking
+5. **JWT Exchange**: Optional JWT token exchange for servers requiring JWT authentication
+6. **MCP Launch**: Launches `mcp-remote` with `Authorization: Bearer <token>` header
 
 ## Authentication Flow
 
-The package uses OAuth 2.0 Implicit Grant flow for simplicity:
+The package implements a complete OAuth implicit flow:
 
 ```
-1. User → Browser → Adobe IMS Login Page
-2. User → Authenticates → Adobe ID Credentials
-3. Adobe IMS → Redirect → localhost:8080#access_token=...
-4. JavaScript → Extract Token → Send to Server
-5. Script → Store Token → ~/.cursor/
-6. Script → Launch MCP → With Auth Header
+1. Generate OAuth URL → Adobe IMS Authorization Server
+2. Open Browser → User Authentication
+3. Capture Callback → Local HTTP Server  
+4. Extract Tokens → From URL Fragment
+5. Store Tokens → Secure Local Storage
+6. Launch MCP → With Auth Header
+```
+
+## Environments
+
+The library supports multiple Adobe IMS environments:
+
+- **Production** (`prod`) - Default production environment
+- **Stage** (`stage`, `stg`) - Staging environment for testing
+- **Development** (`dev`, `development`) - Development environment
+- **QA/Test** (`qa`, `test`) - QA testing environment
+
+```bash
+export ADOBE_IMS_ENV="stage"  # Use staging environment
 ```
 
 ## Troubleshooting
@@ -123,34 +141,40 @@ The package uses OAuth 2.0 Implicit Grant flow for simplicity:
 # Ensure ADOBE_CLIENT_ID is set in your MCP config
 ```
 
-**"Port 8080 in use"**
+**"Authentication failed"**
 ```bash
-# The redirect URI is hardcoded to localhost:8080
-# Ensure no other service is using this port during authentication
+# Check that your Adobe Developer Console project is properly configured
+# Verify the client ID is correct for the target environment
 ```
 
-**"Browser doesn't open"**
+**"OAuth state parameter invalid"**
 ```bash
-# Manually visit the authentication URL that appears in the terminal
+# This usually indicates a callback security issue
+# Clear tokens and try again
+npx mcp-remote-with-okta <url> clear
 ```
 
-**"Invalid client configuration"**
+**"Token validation failed"**
 ```bash
-# Ensure your Adobe Developer Console project is configured as:
-# - Implicit Grant enabled
-# - Redirect URI: http://localhost:8080/callback
+# Clear stored tokens and re-authenticate
+npx mcp-remote-with-okta <url> clear
+npx mcp-remote-with-okta <url> authenticate
 ```
 
-**"unsupported_grant_type"**
+**"Auto-refresh failed"**
 ```bash
-# This means your Adobe IMS client doesn't have Implicit Grant enabled
-# Enable "Implicit Grant" in Adobe Developer Console
+# Check debug logs to see the specific error
+ADOBE_DEBUG=true npx mcp-remote-with-okta <url> status
+
+# Disable auto-refresh if causing issues
+export ADOBE_AUTO_REFRESH=false
 ```
 
 **"Client error for command A system error occurred (spawn npx ENOENT)"**
 ```bash
 # If you encounter this error when using npx in MCP configuration,
-# this often happens when the Node.js/npm environment isn't properly set up
+# this often happens when the Node.js/npm environment isn't properly 
+set up
 
 # Solution: Create an npx wrapper script
 cat > ~/.cursor/npx-wrapper.sh << 'SCRIPT'
@@ -189,79 +213,90 @@ chmod +x ~/.cursor/npx-wrapper.sh
 
 ### Debug Mode
 
-The underlying `mcp-remote` runs in debug mode by default. Logs are written to `~/.mcp-auth/`.
-
-### Token Management
+For detailed troubleshooting, enable debug mode:
 
 ```bash
-# Check if tokens are valid
+# Enable debug logging
+export ADOBE_DEBUG=true
 npx mcp-remote-with-okta <url> status
 
-# Force re-authentication
-npx mcp-remote-with-okta <url> clear
+# Or use standard DEBUG variable
+export DEBUG=adobe
 npx mcp-remote-with-okta <url> authenticate
 ```
 
-## Security Notes
+Debug mode shows:
+- Configuration validation results
+- Token expiration times and validity
+- OAuth flow step-by-step progress
+- Auto-refresh timer scheduling
+- Network request details
+- Error stack traces
 
-- Tokens are stored locally in `~/.cursor/adobe-tokens.json`
-- Uses implicit grant flow (tokens visible in browser URL during auth)
-- No client secret required
-- Tokens expire after 1 hour and require re-authentication
-- User authentication required for each new token
+### Manual Diagnostics
 
-## Adobe Developer Console Setup
+For debugging authentication issues:
 
-To use this package, you need to configure Adobe Developer Console for implicit grant:
+```bash
+# Check authentication status with debug info
+ADOBE_DEBUG=true npx mcp-remote-with-okta <url> status
 
-### Step-by-Step Setup
+# View current token details
+npx mcp-remote-with-okta <url> token
 
-1. **Create a Project**:
-   - Go to [Adobe Developer Console](https://developer.adobe.com/console/)
-   - Create a new project or select existing one
+# Test authentication flow with full logging
+ADOBE_DEBUG=true npx mcp-remote-with-okta <url> authenticate
 
-2. **Add OAuth Web App**:
-   - Click "Add API" → "Adobe Services" → Choose appropriate service
-   - Select "OAuth Web App" credential type
+# Clear tokens and start fresh
+npx mcp-remote-with-okta <url> clear
+```
 
-3. **Configure Grant Types**:
-   - Enable **"Implicit Grant"** ✅
-   - Enable **"Refresh Token Grant"** (optional) ✅
-   - Authorization Code Grant is not required
+## Architecture
 
-4. **Set Redirect URI**:
-   - Add redirect URI: `http://localhost:8080/callback`
-   - This must match exactly (including the port)
+This package is built with:
 
-5. **Configure Scopes**:
-   - Add required scopes (minimum: `AdobeID`, `openid`)
-   - Add any additional scopes your MCP server requires
+- **OAuth Implicit Flow** - Adobe's recommended flow for client-side applications
+- **Auto-refresh** - Background token refresh with configurable timing
+- **Debug Mode** - Comprehensive logging for troubleshooting
+- **[mcp-remote](https://www.npmjs.com/package/mcp-remote)** - MCP remote server client
+- **Node.js 18+** - Modern JavaScript runtime
+- **Native HTTP Server** - For OAuth callback handling
 
-6. **Copy Client ID**:
-   - Copy the Client ID for your environment configuration
-   - No client secret needed for implicit grant
+The implementation provides robust error handling, automatic token management, and follows OAuth security best practices.
 
-### Required Configuration
+- **Process cleanup**: Timers are properly cleaned up on exit
 
-- **Grant Type**: Implicit Grant
-- **Redirect URI**: `http://localhost:8080/callback`
-- **Scopes**: `AdobeID,openid` (minimum)
+### Auto-Refresh
 
-## Requirements
+The wrapper automatically refreshes tokens before they expire to ensure uninterrupted service:
 
-- Node.js 18.0.0 or higher
-- Internet connection for authentication
-- Browser for OAuth implicit flow
-- Adobe ID account
+```bash
+# Enable auto-refresh (default: true)
+export ADOBE_AUTO_REFRESH=true
+
+# Set refresh threshold to 5 minutes before expiration
+export ADOBE_REFRESH_THRESHOLD=5
+
+# Disable auto-refresh
+export ADOBE_AUTO_REFRESH=false
+```
+
+Auto-refresh features:
+- **Background refresh**: Tokens are refreshed automatically before expiration
+- **Configurable threshold**: Set how many minutes before expiration to trigger refresh
+- **Graceful fallback**: If auto-refresh fails, manual authentication is triggered
+- **Process cleanup**: Timers are properly cleaned up on exit
 
 ## Contributing
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+Contributions are welcomed! Please ensure all tests pass and maintain code coverage above 75%.
+
+```bash
+npm test              # Run tests
+npm run test:coverage # Run tests with coverage
+npm run lint          # Check code style
+```
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License. See LICENSE for more information.
