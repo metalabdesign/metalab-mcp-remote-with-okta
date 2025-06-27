@@ -398,7 +398,7 @@ describe('AdobeMCPWrapper', () => {
     it('should throw error if client ID is missing', async () => {
       wrapper.clientId = null;
       await expect(wrapper.startAuthFlow()).rejects.toThrow(
-        'Client ID not found. Please add ADOBE_CLIENT_ID to your environment variables.',
+        'Client ID not found. Please add ADOBE_CLIENT_ID to env variables.',
       );
     });
 
@@ -461,7 +461,7 @@ describe('AdobeMCPWrapper', () => {
       wrapper.clientId = null;
 
       await expect(wrapper.getValidToken()).rejects.toThrow(
-        'Client ID not found. Please add ADOBE_CLIENT_ID to your environment variables.',
+        'Client ID not found. Please add ADOBE_CLIENT_ID to env variables.',
       );
     });
   });
@@ -481,13 +481,14 @@ describe('AdobeMCPWrapper', () => {
       global.fetch.mockResolvedValue({
         ok: true,
         json: jest.fn().mockResolvedValue(mockJWTResponse),
+        headers: new Map(),
       });
 
       const result = await wrapper.exchangeForJWT('test-access-token');
 
       expect(result).toBe('jwt-token-123');
       expect(global.fetch).toHaveBeenCalledWith(
-        'https://test.com/api/v1/auth/login',
+        'https://test.com/auth/login',
         expect.objectContaining({
           method: 'POST',
           headers: expect.objectContaining({
@@ -504,6 +505,7 @@ describe('AdobeMCPWrapper', () => {
       global.fetch.mockResolvedValue({
         ok: true,
         json: jest.fn().mockResolvedValue(mockJWTResponse),
+        headers: new Map(),
       });
 
       const result = await wrapper.exchangeForJWT('test-access-token');
@@ -518,6 +520,7 @@ describe('AdobeMCPWrapper', () => {
         ok: false,
         status: 401,
         text: jest.fn().mockResolvedValue('Unauthorized'),
+        headers: new Map(),
       });
 
       await expect(noRetryWrapper.exchangeForJWT('test-access-token', 3))
@@ -533,6 +536,7 @@ describe('AdobeMCPWrapper', () => {
       global.fetch.mockResolvedValue({
         ok: true,
         json: jest.fn().mockResolvedValue(mockJWTResponse),
+        headers: new Map(),
       });
 
       await expect(noRetryWrapper.exchangeForJWT('test-access-token', 3))
@@ -572,6 +576,7 @@ describe('AdobeMCPWrapper', () => {
       global.fetch.mockResolvedValue({
         ok: true,
         json: jest.fn().mockResolvedValue({ token: 'jwt-token-123' }),
+        headers: new Map(),
       });
 
       const result = await wrapper.getValidJWT();
@@ -583,7 +588,7 @@ describe('AdobeMCPWrapper', () => {
       wrapper.clientId = null;
 
       await expect(wrapper.getValidJWT()).rejects.toThrow(
-        'Client ID not found. Please add ADOBE_CLIENT_ID to your environment variables.',
+        'Client ID not found. Please add ADOBE_CLIENT_ID to env variables.',
       );
     });
   });
@@ -632,6 +637,7 @@ describe('AdobeMCPWrapper', () => {
       global.fetch = jest.fn().mockResolvedValue({
         ok: true,
         json: jest.fn().mockResolvedValue({ token: 'jwt-token-123' }),
+        headers: new Map(),
       });
 
       await wrapper.launchMCP();
@@ -927,7 +933,7 @@ describe('AdobeMCPWrapper', () => {
       // Should start auth flow since loadTokens returns null
       wrapper.clientId = null;
       await expect(wrapper.getValidToken()).rejects.toThrow(
-        'Client ID not found. Please add ADOBE_CLIENT_ID to your environment variables.',
+        'Client ID not found. Please add ADOBE_CLIENT_ID to env variables.',
       );
     });
 
@@ -936,6 +942,7 @@ describe('AdobeMCPWrapper', () => {
       global.fetch = jest.fn().mockResolvedValue({
         ok: true,
         json: jest.fn().mockResolvedValue({ token: 'jwt-from-token' }),
+        headers: new Map(),
       });
       let result = await wrapper.exchangeForJWT('test-access-token');
       expect(result).toBe('jwt-from-token');
@@ -944,6 +951,7 @@ describe('AdobeMCPWrapper', () => {
       global.fetch = jest.fn().mockResolvedValue({
         ok: true,
         json: jest.fn().mockResolvedValue({ jwt: 'jwt-from-jwt' }),
+        headers: new Map(),
       });
       result = await wrapper.exchangeForJWT('test-access-token');
       expect(result).toBe('jwt-from-jwt');
@@ -954,6 +962,7 @@ describe('AdobeMCPWrapper', () => {
         json: jest.fn().mockResolvedValue({
           access_token: 'jwt-from-access-token',
         }),
+        headers: new Map(),
       });
       result = await wrapper.exchangeForJWT('test-access-token');
       expect(result).toBe('jwt-from-access-token');
@@ -962,6 +971,7 @@ describe('AdobeMCPWrapper', () => {
       global.fetch = jest.fn().mockResolvedValue({
         ok: true,
         json: jest.fn().mockResolvedValue({ sessionToken: 'jwt-from-session' }),
+        headers: new Map(),
       });
       result = await wrapper.exchangeForJWT('test-access-token');
       expect(result).toBe('jwt-from-session');
@@ -1099,7 +1109,6 @@ describe('process error handlers', () => {
     console.error = originalConsoleError;
     jest.restoreAllMocks();
   });
-
   it('should handle main function errors', async () => {
     // Test error handling in main function
     const error = new Error('Fatal error');
@@ -1112,4 +1121,4 @@ describe('process error handlers', () => {
       expect(caughtError.message).toBe('Fatal error');
     }
   });
-}); 
+});

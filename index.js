@@ -77,6 +77,17 @@ class AdobeMCPWrapper {
   }
 
   /**
+   * Gets the API root URL by removing the trailing '/mcp' segment.
+   * @returns {String} The root URL for API calls.
+   */
+  getApiRootUrl() {
+    if (this.mcpRemoteUrl.endsWith('/mcp')) {
+      return this.mcpRemoteUrl.slice(0, -4);
+    }
+    return this.mcpRemoteUrl;
+  }
+
+  /**
    * Unified output method - consolidates debug() and output()
    */
   log(message, level = 'info') {
@@ -152,7 +163,6 @@ class AdobeMCPWrapper {
       const tokenData = { ...tokens, timestamp: Date.now() };
       fs.writeFileSync(this.tokenFile, JSON.stringify(tokenData, null, 2));
       this.output('✅ Tokens saved successfully');
-      
       if (this.autoRefresh) this.scheduleAutoRefresh(tokenData);
     } catch (error) {
       this.error(`❌ Failed to save tokens: ${error.message}`);
@@ -167,7 +177,8 @@ class AdobeMCPWrapper {
 
     const expiresIn = parseInt(tokens.expires_in, 10) || 3600;
     const refreshThresholdMs = this.refreshThresholdMinutes * 60 * 1000;
-    const timeUntilRefresh = (tokens.timestamp + (expiresIn * 1000)) - refreshThresholdMs - Date.now();
+    const timeUntilRefresh = (tokens.timestamp + (expiresIn * 1000))
+      - refreshThresholdMs - Date.now();
 
     if (timeUntilRefresh > 0) {
       this.debug(`Auto-refresh scheduled in ${Math.round(timeUntilRefresh / 1000)}s`);
@@ -206,12 +217,33 @@ class AdobeMCPWrapper {
     return (expirationTime - Date.now()) < (5 * 60 * 1000); // 5 min buffer
   }
 
+  static handleError(req, res, reject, server) {
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk;
+    });
+    req.on('end', () => {
+      try {
+        const data = JSON.parse(body);
+        res.writeHead(400);
+        res.end('Error received');
+        server.close();
+        reject(new Error(`Authentication error: ${data.error_description || data.error}`));
+      } catch (error) {
+        res.writeHead(500);
+        res.end('Parse error');
+        server.close();
+        reject(new Error('Parse error'));
+      }
+    });
+  }
+
   /**
    * OAuth flow - simplified HTML and server logic
    */
   async startAuthFlow() {
     if (!this.clientId) {
-      throw new Error('Client ID not found. Please add ADOBE_CLIENT_ID to your environment variables.');
+      throw new Error('Client ID not found. Please add ADOBE_CLIENT_ID to env variables.');
     }
 
     const state = crypto.randomBytes(16).toString('hex');
@@ -241,20 +273,33 @@ class AdobeMCPWrapper {
               const params = new URLSearchParams(fragment);
               const token = params.get('access_token');
               const error = params.get('error');
-              
               if (error) {
-                document.getElementById('status').innerHTML = '<h2 style="color:red">Error: ' + (params.get('error_description') || error) + '</h2>';
-                fetch('/error', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({error})});
+                const errorDesc = params.get('error_description') || error;
+                document.getElementById('status').innerHTML =
+                  '<h2 style="color:red">Error: ' + errorDesc + '</h2>';
+                fetch('/error', {
+                  method:'POST',
+                  headers:{'Content-Type':'application/json'},
+                  body:JSON.stringify({error: errorDesc})
+                });
               } else if (token) {
-                document.getElementById('status').innerHTML = '<h2 style="color:green">Success! You can close this tab.</h2>';
-                fetch('/success', {method:'POST', headers:{'Content-Type':'application/json'}, 
-                  body:JSON.stringify({access_token:token, expires_in:params.get('expires_in'), state:params.get('state')})});
+                document.getElementById('status').innerHTML =
+                  '<h2 style="color:green">Success! You can close this tab.</h2>';
+                fetch('/success', {
+                  method:'POST',
+                  headers:{'Content-Type':'application/json'},
+                  body:JSON.stringify({
+                    access_token:token,
+                    expires_in:params.get('expires_in'),
+                    state:params.get('state'),
+                  })
+                });
               }
             </script></body></html>`);
         } else if (url.pathname === '/success') {
           this.handleCallback(req, res, state, resolve, reject, server);
         } else if (url.pathname === '/error') {
-          this.handleError(req, res, reject, server);
+          AdobeMCPWrapper.handleError(req, res, reject, server);
         } else {
           res.writeHead(404);
           res.end('<h1>Not Found</h1>');
@@ -262,7 +307,7 @@ class AdobeMCPWrapper {
       });
 
       server.listen(8080, () => this.output('🔗 Waiting for callback on localhost:8080'));
-      server.on('error', err => reject(new Error(`Server error: ${err.message}`)));
+      server.on('error', (err) => reject(new Error(`Server error: ${err.message}`)));
     });
   }
 
@@ -302,31 +347,9 @@ class AdobeMCPWrapper {
     });
   }
 
-  handleError(req, res, reject, server) {
-    let body = '';
-    req.on('data', (chunk) => {
-      body += chunk;
-    });
-    req.on('end', () => {
-      try {
-        const data = JSON.parse(body);
-        res.writeHead(400);
-        res.end('Error received');
-        server.close();
-        reject(new Error(`Authentication error: ${data.error_description || data.error}`));
-      } catch (error) {
-        res.writeHead(500);
-        res.end('Parse error');
-        server.close();
-        reject(new Error('Parse error'));
-      }
-    });
-  }
-
   openBrowser(url) {
     const commands = { darwin: 'open', win32: 'start' };
     const command = commands[os.platform()] || 'xdg-open';
-    
     try {
       spawn(command, [url], { detached: true, stdio: 'ignore' });
     } catch (error) {
@@ -338,28 +361,45 @@ class AdobeMCPWrapper {
    * Token retrieval - simplified
    */
   async getValidToken() {
+    this.debug('🔍 Getting valid access token...');
     const storedTokens = this.loadTokens();
 
     if (storedTokens && !AdobeMCPWrapper.isTokenExpired(storedTokens)) {
+      this.debug('✅ Using stored valid token');
+      this.debug(`Token expires in: ${storedTokens.expires_in}s`);
+      if (storedTokens.timestamp) {
+        const expiresAt = new Date(
+          storedTokens.timestamp + parseInt(storedTokens.expires_in, 10) * 1000,
+        );
+        this.debug(`Token expires at: ${expiresAt.toISOString()}`);
+      }
       if (this.autoRefresh && !this.refreshTimer) {
         this.scheduleAutoRefresh(storedTokens);
       }
       return storedTokens.access_token;
     }
 
+    this.debug('⚠️ No valid stored token found');
+
     // Try auto-refresh first if enabled
     if (this.autoRefresh && storedTokens) {
+      this.debug('🔄 Attempting auto-refresh...');
       try {
         const refreshed = await this.refreshTokenIfNeeded();
-        if (refreshed) return this.loadTokens().access_token;
+        if (refreshed) {
+          this.debug('✅ Auto-refresh successful');
+          return this.loadTokens().access_token;
+        }
       } catch (error) {
-        this.debug(`Auto-refresh failed: ${error.message}`);
+        this.debug(`❌ Auto-refresh failed: ${error.message}`);
       }
     }
 
     // Start new auth flow
+    this.debug('🚀 Starting new authentication flow...');
     const tokens = await this.startAuthFlow();
     this.saveTokens(tokens);
+    this.debug('✅ New tokens obtained and saved');
     return tokens.access_token;
   }
 
@@ -367,31 +407,60 @@ class AdobeMCPWrapper {
    * JWT exchange - simplified with retry logic
    */
   async exchangeForJWT(accessToken, attempt = 1) {
-    const jwtUrl = `${this.mcpRemoteUrl.replace('/mcp', '')}/api/v1/auth/login`;
+    const jwtUrl = `${this.getApiRootUrl()}/auth/login`;
     const maxRetries = 3;
 
     try {
       this.output(`🔄 Exchanging for JWT (${attempt}/${maxRetries})...`);
+      this.debug(`JWT URL: ${jwtUrl}`);
+      this.debug(`Access Token (first 20 chars): ${accessToken.substring(0, 20)}...`);
+      this.debug(`Access Token length: ${accessToken.length}`);
+
+      const requestBody = { accessToken };
+      this.debug(`Request body: ${JSON.stringify(requestBody)}`);
 
       const response = await fetch(jwtUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'User-Agent': 'mcp-remote-with-okta/1.1.0' },
-        body: JSON.stringify({ accessToken }),
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'mcp-remote-with-okta/1.1.0',
+        },
+        body: JSON.stringify(requestBody),
       });
 
+      this.debug(`Response status: ${response.status}`);
+      if (response.headers && typeof response.headers.entries === 'function') {
+        const responseHeaders = Object.fromEntries(response.headers.entries());
+        this.debug(`Response headers: ${JSON.stringify(responseHeaders)}`);
+      }
+
       if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`JWT exchange failed (${response.status}): ${errorText}`);
+        const errorBody = await response.text();
+        this.debug(`Error response body: ${errorBody}`);
+        // Enhanced error message with more context
+        const errorMsg = `JWT exchange failed (${response.status}): ${errorBody}`;
+        this.debug(`Full error: ${errorMsg}`);
+        throw new Error(errorMsg);
       }
 
       const jwtResponse = await response.json();
-      const jwtToken = jwtResponse.token || jwtResponse.jwt || jwtResponse.access_token || jwtResponse.sessionToken;
+      this.debug(`JWT response keys: ${Object.keys(jwtResponse).join(', ')}`);
+      const jwtToken = jwtResponse.token
+        || jwtResponse.jwt
+        || jwtResponse.access_token
+        || jwtResponse.sessionToken;
 
-      if (!jwtToken) throw new Error('No JWT token in response');
+      if (!jwtToken) {
+        this.debug(`JWT response: ${JSON.stringify(jwtResponse)}`);
+        throw new Error('No JWT token in response');
+      }
 
+      this.debug(`JWT token (first 20 chars): ${jwtToken.substring(0, 20)}...`);
       this.output('✅ JWT token obtained');
       return jwtToken;
     } catch (error) {
+      this.debug(`JWT exchange error: ${error.message}`);
+      this.debug(`Error stack: ${error.stack}`);
       if (attempt < maxRetries) {
         const delay = 2 ** (attempt - 1) * 1000;
         this.output(`⏳ Retrying in ${delay}ms...`);
@@ -407,8 +476,9 @@ class AdobeMCPWrapper {
 
   async healthCheck() {
     try {
-      const healthUrl = `${this.mcpRemoteUrl.replace('/mcp', '')}/health`;
-      const response = await fetch(healthUrl, { method: 'HEAD', headers: { 'User-Agent': 'mcp-remote-with-okta/1.1.0' } });
+      const healthUrl = `${this.getApiRootUrl()}/health`;
+      const headers = { 'User-Agent': 'mcp-remote-with-okta/1.1.0' };
+      const response = await fetch(healthUrl, { method: 'HEAD', headers });
       const isHealthy = response.ok;
       this.output(isHealthy ? '✅ MCP server is healthy' : '⚠️ MCP server health check failed');
       return isHealthy;
@@ -420,7 +490,7 @@ class AdobeMCPWrapper {
 
   async getValidJWT() {
     const accessToken = await this.getValidToken();
-    return await this.exchangeForJWT(accessToken);
+    return this.exchangeForJWT(accessToken);
   }
 
   /**
@@ -449,7 +519,7 @@ class AdobeMCPWrapper {
       '--header', `Authorization:Bearer ${authToken}`,
     ], { stdio: 'inherit', env: process.env });
 
-    mcpProcess.on('error', error => {
+    mcpProcess.on('error', (error) => {
       this.error(`❌ Failed to start MCP: ${error.message}`);
       process.exit(1);
     });
@@ -510,12 +580,44 @@ class AdobeMCPWrapper {
         this.output(`
 Available commands:
   authenticate - Authenticate and get token
-  status       - Check token status  
+  status       - Check token status
   token        - Display current token
   clear        - Clear stored tokens
+  debug        - Debug authentication and JWT exchange
   help         - Show this help
         `);
-      }
+      },
+      debug: async () => {
+        this.output('🔍 Debug Information:');
+        this.output(`🌐 Environment: ${this.getEnvironmentInfo().name}`);
+        this.output(`🔗 MCP URL: ${this.mcpRemoteUrl}`);
+        const clientId = this.clientId ? `${this.clientId.substring(0, 10)}...` : 'Not set';
+        this.output(`🔑 Client ID: ${clientId}`);
+        this.output(`🎯 Auth Method: ${this.authMethod}`);
+        const tokens = this.loadTokens();
+        if (tokens) {
+          const isExpired = AdobeMCPWrapper.isTokenExpired(tokens);
+          this.output(`📊 Token Status: ${isExpired ? '❌ Expired' : '✅ Valid'}`);
+          this.output(`🔐 Access Token (first 20): ${tokens.access_token.substring(0, 20)}...`);
+          this.output(`⏰ Expires In: ${tokens.expires_in}s`);
+          if (tokens.timestamp) {
+            const expiresAt = new Date(
+              tokens.timestamp + (parseInt(tokens.expires_in, 10) * 1000),
+            );
+            this.output(`📅 Expires At: ${expiresAt.toLocaleString()}`);
+          }
+          // Test JWT exchange
+          this.output('\n🧪 Testing JWT Exchange...');
+          try {
+            const jwt = await this.exchangeForJWT(tokens.access_token);
+            this.output(`✅ JWT Exchange Success: ${jwt.substring(0, 20)}...`);
+          } catch (error) {
+            this.output(`❌ JWT Exchange Failed: ${error.message}`);
+          }
+        } else {
+          this.output('📊 Token Status: ❌ No tokens found');
+        }
+      },
     };
 
     try {
@@ -543,11 +645,11 @@ Adobe MCP Remote Wrapper v1.1.0
 
 Usage: npx mcp-remote-with-okta <mcp-url> [command]
 
-Commands: authenticate, status, token, clear, help
+Commands: authenticate, status, token, clear, debug, help
 
 Environment Variables:
   ADOBE_CLIENT_ID          - Adobe IMS Client ID (required)
-  ADOBE_SCOPE              - OAuth scope (default: AdobeID,openid)  
+  ADOBE_SCOPE              - OAuth scope (default: AdobeID,openid)
   ADOBE_AUTH_METHOD        - jwt or access_token (default: jwt)
   ADOBE_IMS_ENV            - prod, stage, dev (default: prod)
   ADOBE_DEBUG              - Enable debug mode (default: false)
@@ -586,16 +688,17 @@ Examples:
 }
 
 // Error handling
-process.on('unhandledRejection', (reason, promise) => {
+process.on('unhandledRejection', (reason) => {
   console.error('Unhandled Rejection:', reason);
   process.exit(1);
 });
 
 if (require.main === module) {
-  main().catch(error => {
+  main().catch((error) => {
     console.error('Fatal error:', error.message);
     process.exit(1);
   });
 }
 
 module.exports = AdobeMCPWrapper;
+module.exports.main = main;
