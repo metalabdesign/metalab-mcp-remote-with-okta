@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.2.0] - 2024-08-01
+## [1.3.0] - 2024-08-01
 
 ### Added
 - **Okta Authentication**: Added support for Okta as an authentication provider.
@@ -12,7 +12,7 @@
 - Updated `README.md` with instructions for configuring and using both Adobe and Okta.
 - Consolidated environment variables for a more consistent configuration experience.
 
-## [1.1.0] - 2024-07-31
+## [1.2.0] - 2024-07-31
 
 ### Added
 - **Auto-refresh**: Implemented automatic token refresh to prevent session expiration.
@@ -23,7 +23,7 @@
 - Improved error handling and reporting.
 - Simplified the OAuth callback server.
 
-## [1.0.0] - 2024-07-30
+## [1.1.0] - 2024-07-30
 
 - Initial release of the `mcp-remote-with-okta` package.
 - Adobe IMS authentication using OAuth implicit flow.
