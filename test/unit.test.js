@@ -171,6 +171,7 @@ describe('Additional index.js Logic', () => {
     beforeEach(() => {
         jest.clearAllMocks();
         process.env.ADOBE_CLIENT_ID = 'test-id';
+        jest.spyOn(console, 'error').mockImplementation(() => {});
     });
 
     it('getApiRootUrl should remove /mcp suffix', () => {
@@ -235,5 +236,129 @@ describe('Additional index.js Logic', () => {
         const outputSpy = jest.spyOn(wrapper, 'output').mockImplementation(() => {});
         await wrapper.runCLI('help');
         expect(outputSpy).toHaveBeenCalledWith(expect.stringContaining('Available commands:'));
+    });
+
+    it('runCLI("debug") should display debug information', async () => {
+        wrapper = new AuthMCPWrapper(mcpRemoteUrl, { silent: true });
+        const outputSpy = jest.spyOn(wrapper, 'output').mockImplementation(() => {});
+        fs.existsSync.mockReturnValue(true);
+        fs.readFileSync.mockReturnValue(JSON.stringify({
+            access_token: 'debug-token',
+            expires_in: 3600,
+            timestamp: Date.now()
+        }));
+        await wrapper.runCLI('debug');
+        expect(outputSpy).toHaveBeenCalledWith(expect.stringContaining('Debug Information:'));
+        expect(outputSpy).toHaveBeenCalledWith(expect.stringContaining('Token Status: ✅ Valid'));
+    });
+});
+
+describe('Main function', () => {
+    let originalArgv;
+
+    beforeEach(() => {
+        originalArgv = process.argv;
+        jest.spyOn(console, 'log').mockImplementation(() => {});
+        jest.spyOn(console, 'error').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+        process.argv = originalArgv;
+        jest.restoreAllMocks();
+    });
+
+    it('should show help if no arguments are provided', async () => {
+        const { main } = require('../index');
+        process.argv = ['node', 'index.js'];
+        await main();
+        expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Usage: npx mcp-remote-with-okta'));
+    });
+
+    it('should call runCLI when a command is provided', async () => {
+        const { main } = require('../index');
+        const runCLISpy = jest.spyOn(AuthMCPWrapper.prototype, 'runCLI').mockResolvedValue();
+        process.argv = ['node', 'index.js', 'https://some.url', 'status'];
+        await main();
+        expect(runCLISpy).toHaveBeenCalledWith('status');
+    });
+
+    it('should call launchMCP when no command is provided', async () => {
+        const { main } = require('../index');
+        const launchMCPSpy = jest.spyOn(AuthMCPWrapper.prototype, 'launchMCP').mockResolvedValue();
+        process.argv = ['node', 'index.js', 'https://some.url'];
+        await main();
+        expect(launchMCPSpy).toHaveBeenCalled();
+    });
+});
+
+describe('Error Handling and Edge Cases', () => {
+    const mcpRemoteUrl = 'https://test.mcp.com/mcp';
+    let wrapper;
+
+    beforeEach(() => {
+        jest.clearAllMocks();
+        process.env.ADOBE_CLIENT_ID = 'test-id';
+        wrapper = new AuthMCPWrapper(mcpRemoteUrl, { silent: false });
+        jest.spyOn(console, 'log').mockImplementation(() => {});
+        jest.spyOn(console, 'error').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+        if (wrapper) wrapper.cleanup();
+        jest.restoreAllMocks();
+    });
+
+    it('log should use console.error when in MCPMode', () => {
+        wrapper.isMCPMode = true;
+        wrapper.log('test message');
+        expect(console.error).toHaveBeenCalledWith('test message');
+    });
+
+    it('debug should not log when debugMode is false', () => {
+        wrapper.debugMode = false;
+        wrapper.debug('test debug message');
+        expect(console.log).not.toHaveBeenCalled();
+    });
+
+    it('loadTokens should handle invalid JSON gracefully', () => {
+        fs.existsSync.mockReturnValue(true);
+        fs.readFileSync.mockReturnValue('invalid json');
+        const tokens = wrapper.loadTokens();
+        expect(tokens).toBeNull();
+    });
+
+    it('saveTokens should handle write errors gracefully', () => {
+        fs.writeFileSync.mockImplementation(() => { throw new Error('write error'); });
+        wrapper.saveTokens({ access_token: '123' });
+        expect(console.error).toHaveBeenCalledWith(expect.stringContaining('Failed to save tokens'));
+    });
+
+    it('openBrowser should use correct command for win32', () => {
+        os.platform.mockReturnValue('win32');
+        wrapper.openBrowser('url');
+        expect(spawn).toHaveBeenCalledWith('start', ['url'], expect.any(Object));
+    });
+
+    it('handleCallback should reject on state mismatch', () => {
+        const reject = jest.fn();
+        const handlers = {};
+        const req = {
+            on: (event, cb) => { handlers[event] = cb; }
+        };
+        const res = { writeHead: jest.fn(), end: jest.fn() };
+        const server = { close: jest.fn() };
+
+        wrapper.handleCallback(req, res, 'correct-state', jest.fn(), reject, server);
+        
+        handlers.data(JSON.stringify({ state: 'wrong-state' }));
+        handlers.end();
+
+        expect(reject).toHaveBeenCalledWith(new Error('Invalid state parameter'));
+    });
+
+    it('healthCheck should return false on fetch error', async () => {
+        global.fetch = jest.fn().mockRejectedValue(new Error('Network error'));
+        const result = await wrapper.healthCheck();
+        expect(result).toBe(false);
     });
 });

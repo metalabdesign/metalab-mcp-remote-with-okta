@@ -34,6 +34,16 @@ describe('Authentication Strategies', () => {
         expect(jwt).toBe('mock-jwt-from-ims');
         expect(global.fetch).toHaveBeenCalledWith('https://api.test.com/auth/login', expect.any(Object));
     });
+
+    it('should retry JWT exchange on failure and then throw', async () => {
+        global.fetch = jest.fn()
+            .mockResolvedValueOnce({ ok: false, status: 500 })
+            .mockResolvedValueOnce({ ok: false, status: 500 })
+            .mockResolvedValueOnce({ ok: false, status: 500 });
+
+        await expect(strategy.exchangeForJWT('test-access-token')).rejects.toThrow('JWT exchange failed (500)');
+        expect(global.fetch).toHaveBeenCalledTimes(3);
+    });
   });
 
   describe('OktaAuthStrategy', () => {
