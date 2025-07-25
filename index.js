@@ -6,29 +6,38 @@ const http = require('http');
 const os = require('os');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
+const { createAuthStrategy } = require('./auth-strategy.js');
 
 /**
- * Adobe Authentication and MCP Wrapper
- * Handles Adobe IMS OAuth implicit flow with token management and auto-refresh
+ * Generic Authentication and MCP Wrapper
+ * Handles OAuth implicit flow with token management and auto-refresh
  */
-class AdobeMCPWrapper {
+class AuthMCPWrapper {
   constructor(mcpRemoteUrl, options = {}) {
     this.configDir = path.join(os.homedir(), '.cursor');
-    this.tokenFile = path.join(this.configDir, 'adobe-tokens.json');
+    this.authProvider = process.env.AUTH_PROVIDER || 'adobe';
+    this.tokenFile = path.join(this.configDir, `${this.authProvider}-tokens.json`);
 
     // Configuration
-    this.clientId = process.env.ADOBE_CLIENT_ID;
-    this.scope = process.env.ADOBE_SCOPE || 'AdobeID,openid';
-    this.authMethod = process.env.ADOBE_AUTH_METHOD || 'jwt';
-    this.imsEnvironment = process.env.ADOBE_IMS_ENV || 'prod';
-    this.redirectUri = process.env.ADOBE_REDIRECT_URI || 'http://localhost:8080/callback';
+    if (this.authProvider === 'okta') {
+      this.clientId = process.env.OKTA_CLIENT_ID;
+      this.scope = process.env.OKTA_SCOPE || 'openid profile email';
+    } else {
+      this.clientId = process.env.ADOBE_CLIENT_ID;
+      this.scope = process.env.ADOBE_SCOPE || 'AdobeID,openid';
+    }
+
+    this.authMethod = process.env.AUTH_METHOD || 'jwt';
+    this.imsEnvironment = process.env.ADOBE_IMS_ENV;
+    this.oktaDomain = process.env.OKTA_DOMAIN;
+    this.redirectUri = process.env.REDIRECT_URI || 'http://localhost:8080/callback';
 
     // Debug and auto-refresh
-    this.debugMode = process.env.ADOBE_DEBUG === 'true'
-      || process.env.DEBUG === 'adobe'
+    this.debugMode = process.env.DEBUG_MODE === 'true'
+      || process.env.DEBUG === this.authProvider
       || process.env.DEBUG === '*';
-    this.autoRefresh = process.env.ADOBE_AUTO_REFRESH !== 'false';
-    this.refreshThresholdMinutes = parseInt(process.env.ADOBE_REFRESH_THRESHOLD, 10) || 10;
+    this.autoRefresh = process.env.AUTO_REFRESH !== 'false';
+    this.refreshThresholdMinutes = parseInt(process.env.REFRESH_THRESHOLD, 10) || 10;
 
     // MCP configuration
     this.mcpRemoteUrl = mcpRemoteUrl || 'https://spacecat.experiencecloud.live/api/v1/mcp';
@@ -46,34 +55,12 @@ class AdobeMCPWrapper {
     this.isMCPMode = options.isMCPMode || false;
     this.refreshTimer = null;
 
-    this.validateConfiguration();
-    this.debug(`Configuration loaded: ${this.getEnvironmentInfo().name} environment`);
-  }
+    this.authStrategy = createAuthStrategy(this);
 
-  /**
-   * Environment configuration - consolidated from multiple methods
-   */
-  getEnvironmentInfo() {
-    const envs = {
-      prod: { name: 'Production', url: 'https://ims-na1.adobelogin.com/ims/authorize/v2' },
-      production: {
-        name: 'Production',
-        url: 'https://ims-na1.adobelogin.com/ims/authorize/v2',
-      },
-      stage: { name: 'Stage', url: 'https://ims-na1-stg1.adobelogin.com/ims/authorize/v2' },
-      stg: { name: 'Stage', url: 'https://ims-na1-stg1.adobelogin.com/ims/authorize/v2' },
-      dev: {
-        name: 'Development',
-        url: 'https://ims-na1-dev.adobelogin.com/ims/authorize/v2',
-      },
-      development: {
-        name: 'Development',
-        url: 'https://ims-na1-dev.adobelogin.com/ims/authorize/v2',
-      },
-      qa: { name: 'QA/Test', url: 'https://ims-na1-qa.adobelogin.com/ims/authorize/v2' },
-      test: { name: 'QA/Test', url: 'https://ims-na1-qa.adobelogin.com/ims/authorize/v2' },
-    };
-    return envs[this.imsEnvironment.toLowerCase()] || envs.prod;
+    this.validateConfiguration();
+    this.debug(`Configuration loaded for ${this.authProvider} provider.`);
+    this.debug(`Okta Domain: ${this.oktaDomain}`);
+    this.debug(`Client ID: ${this.clientId}`);
   }
 
   /**
@@ -88,7 +75,7 @@ class AdobeMCPWrapper {
   }
 
   /**
-   * Unified output method - consolidates debug() and output()
+   * Unified output method
    */
   log(message, level = 'info') {
     if (this.silent) return;
@@ -119,13 +106,20 @@ class AdobeMCPWrapper {
   }
 
   /**
-   * Simplified configuration validation
+   * Validates configuration based on the selected auth provider
    */
   validateConfiguration() {
     const errors = [];
-    if (!this.clientId) errors.push('ADOBE_CLIENT_ID is required');
+    if (!this.clientId) {
+      errors.push(`${this.authProvider.toUpperCase()}_CLIENT_ID is required`);
+    }
+
+    if (this.authProvider === 'okta' && !this.oktaDomain) {
+      errors.push('OKTA_DOMAIN is required for Okta authentication');
+    }
+
     if (this.authMethod && !['jwt', 'access_token'].includes(this.authMethod)) {
-      errors.push('ADOBE_AUTH_METHOD must be "jwt" or "access_token"');
+      errors.push('AUTH_METHOD must be "jwt" or "access_token"');
     }
 
     if (errors.length > 0) {
@@ -142,13 +136,13 @@ class AdobeMCPWrapper {
   }
 
   /**
-   * Token management - simplified
+   * Token management
    */
   loadTokens() {
     try {
       if (fs.existsSync(this.tokenFile)) {
         const tokens = JSON.parse(fs.readFileSync(this.tokenFile, 'utf8'));
-        this.debug(`Tokens loaded, expired: ${AdobeMCPWrapper.isTokenExpired(tokens)}`);
+        this.debug(`Tokens loaded, expired: ${AuthMCPWrapper.isTokenExpired(tokens)}`);
         return tokens;
       }
     } catch (error) {
@@ -194,7 +188,7 @@ class AdobeMCPWrapper {
 
   async refreshTokenIfNeeded() {
     const tokens = this.loadTokens();
-    if (!tokens || AdobeMCPWrapper.isTokenExpired(tokens)) {
+    if (!tokens || AuthMCPWrapper.isTokenExpired(tokens)) {
       const newTokens = await this.startAuthFlow();
       this.saveTokens(newTokens);
       return true;
@@ -239,25 +233,17 @@ class AdobeMCPWrapper {
   }
 
   /**
-   * OAuth flow - simplified HTML and server logic
+   * OAuth flow
    */
   async startAuthFlow() {
     if (!this.clientId) {
-      throw new Error('Client ID not found. Please add ADOBE_CLIENT_ID to env variables.');
+      throw new Error(`Client ID not found. Please set ${this.authProvider.toUpperCase()}_CLIENT_ID.`);
     }
 
     const state = crypto.randomBytes(16).toString('hex');
-    const authParams = new URLSearchParams({
-      client_id: this.clientId,
-      redirect_uri: this.redirectUri,
-      scope: this.scope,
-      response_type: 'token',
-      state,
-      response_mode: 'fragment',
-    });
+    const authUrl = this.authStrategy.getAuthUrl(state);
 
-    const authUrl = `${this.getEnvironmentInfo().url}?${authParams.toString()}`;
-    this.output(`🚀 Starting Adobe OAuth (${this.getEnvironmentInfo().name})...`);
+    this.output(`🚀 Starting ${this.authProvider} OAuth flow...`);
     this.openBrowser(authUrl);
 
     return new Promise((resolve, reject) => {
@@ -266,7 +252,7 @@ class AdobeMCPWrapper {
 
         if (url.pathname === '/callback') {
           res.writeHead(200, { 'Content-Type': 'text/html' });
-          res.end(`<!DOCTYPE html><html><head><title>Adobe Auth</title></head><body>
+          res.end(`<!DOCTYPE html><html><head><title>Auth Callback</title></head><body>
             <h1>Processing...</h1><p id="status">Reading response...</p>
             <script>
               const fragment = window.location.hash.substring(1);
@@ -299,7 +285,7 @@ class AdobeMCPWrapper {
         } else if (url.pathname === '/success') {
           this.handleCallback(req, res, state, resolve, reject, server);
         } else if (url.pathname === '/error') {
-          AdobeMCPWrapper.handleError(req, res, reject, server);
+          AuthMCPWrapper.handleError(req, res, reject, server);
         } else {
           res.writeHead(404);
           res.end('<h1>Not Found</h1>');
@@ -358,13 +344,13 @@ class AdobeMCPWrapper {
   }
 
   /**
-   * Token retrieval - simplified
+   * Token retrieval
    */
   async getValidToken() {
     this.debug('🔍 Getting valid access token...');
     const storedTokens = this.loadTokens();
 
-    if (storedTokens && !AdobeMCPWrapper.isTokenExpired(storedTokens)) {
+    if (storedTokens && !AuthMCPWrapper.isTokenExpired(storedTokens)) {
       this.debug('✅ Using stored valid token');
       this.debug(`Token expires in: ${storedTokens.expires_in}s`);
       if (storedTokens.timestamp) {
@@ -404,80 +390,16 @@ class AdobeMCPWrapper {
   }
 
   /**
-   * JWT exchange - simplified with retry logic
+   * JWT exchange
    */
-  async exchangeForJWT(accessToken, attempt = 1) {
-    const jwtUrl = `${this.getApiRootUrl()}/auth/login`;
-    const maxRetries = 3;
-
-    try {
-      this.output(`🔄 Exchanging for JWT (${attempt}/${maxRetries})...`);
-      this.debug(`JWT URL: ${jwtUrl}`);
-      this.debug(`Access Token (first 20 chars): ${accessToken.substring(0, 20)}...`);
-      this.debug(`Access Token length: ${accessToken.length}`);
-
-      const requestBody = { accessToken };
-      this.debug(`Request body: ${JSON.stringify(requestBody)}`);
-
-      const response = await fetch(jwtUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'User-Agent': 'mcp-remote-with-okta/1.1.0',
-        },
-        body: JSON.stringify(requestBody),
-      });
-
-      this.debug(`Response status: ${response.status}`);
-      if (response.headers && typeof response.headers.entries === 'function') {
-        const responseHeaders = Object.fromEntries(response.headers.entries());
-        this.debug(`Response headers: ${JSON.stringify(responseHeaders)}`);
-      }
-
-      if (!response.ok) {
-        const errorBody = await response.text();
-        this.debug(`Error response body: ${errorBody}`);
-        // Enhanced error message with more context
-        const errorMsg = `JWT exchange failed (${response.status}): ${errorBody}`;
-        this.debug(`Full error: ${errorMsg}`);
-        throw new Error(errorMsg);
-      }
-
-      const jwtResponse = await response.json();
-      this.debug(`JWT response keys: ${Object.keys(jwtResponse).join(', ')}`);
-      const jwtToken = jwtResponse.token
-        || jwtResponse.jwt
-        || jwtResponse.access_token
-        || jwtResponse.sessionToken;
-
-      if (!jwtToken) {
-        this.debug(`JWT response: ${JSON.stringify(jwtResponse)}`);
-        throw new Error('No JWT token in response');
-      }
-
-      this.debug(`JWT token (first 20 chars): ${jwtToken.substring(0, 20)}...`);
-      this.output('✅ JWT token obtained');
-      return jwtToken;
-    } catch (error) {
-      this.debug(`JWT exchange error: ${error.message}`);
-      this.debug(`Error stack: ${error.stack}`);
-      if (attempt < maxRetries) {
-        const delay = 2 ** (attempt - 1) * 1000;
-        this.output(`⏳ Retrying in ${delay}ms...`);
-        return new Promise((resolve, reject) => {
-          setTimeout(() => {
-            this.exchangeForJWT(accessToken, attempt + 1).then(resolve).catch(reject);
-          }, delay);
-        });
-      }
-      throw error;
-    }
+  async exchangeForJWT(accessToken) {
+    return this.authStrategy.exchangeForJWT(accessToken);
   }
 
   async healthCheck() {
     try {
       const healthUrl = `${this.getApiRootUrl()}/health`;
-      const headers = { 'User-Agent': 'mcp-remote-with-okta/1.1.0' };
+      const headers = { 'User-Agent': `mcp-remote-with-okta/1.2.0` };
       const response = await fetch(healthUrl, { method: 'HEAD', headers });
       const isHealthy = response.ok;
       this.output(isHealthy ? '✅ MCP server is healthy' : '⚠️ MCP server health check failed');
@@ -494,13 +416,13 @@ class AdobeMCPWrapper {
   }
 
   /**
-   * MCP launch - simplified
+   * MCP launch
    */
   async launchMCP() {
-    this.output(`🔐 Adobe MCP Wrapper starting (${this.getEnvironmentInfo().name})...`);
+    this.output(`🔐 ${this.authProvider.toUpperCase()} MCP Wrapper starting...`);
 
     if (!this.clientId) {
-      throw new Error('ADOBE_CLIENT_ID environment variable not found');
+      throw new Error(`${this.authProvider.toUpperCase()}_CLIENT_ID environment variable not found`);
     }
 
     let authToken;
@@ -531,10 +453,10 @@ class AdobeMCPWrapper {
   }
 
   /**
-   * CLI interface - simplified
+   * CLI interface
    */
   async runCLI(command) {
-    this.output('🔐 Adobe Experience Cloud Authentication CLI\n');
+    this.output(`🔐 ${this.authProvider.toUpperCase()} Authentication CLI\n`);
 
     const commands = {
       authenticate: async () => {
@@ -542,10 +464,14 @@ class AdobeMCPWrapper {
         this.output(`\n🎉 Authentication completed!\n🔑 Token: ${token.substring(0, 20)}...`);
       },
       status: () => {
-        this.output(`🌐 Environment: ${this.getEnvironmentInfo().name}`);
+        if (this.authProvider === 'adobe') {
+          this.output(`🌐 Environment: ${this.authStrategy.getEnvironmentInfo().name}`);
+        } else {
+          this.output(`🌐 Provider: ${this.authProvider}`);
+        }
         const tokens = this.loadTokens();
         if (tokens) {
-          const isExpired = AdobeMCPWrapper.isTokenExpired(tokens);
+          const isExpired = AuthMCPWrapper.isTokenExpired(tokens);
           this.output(`📊 Token Status: ${isExpired ? '❌ Expired' : '✅ Valid'}`);
           if (tokens.timestamp) {
             const expiresIn = parseInt(tokens.expires_in, 10) || 3600;
@@ -589,14 +515,18 @@ Available commands:
       },
       debug: async () => {
         this.output('🔍 Debug Information:');
-        this.output(`🌐 Environment: ${this.getEnvironmentInfo().name}`);
+        if (this.authProvider === 'adobe') {
+          this.output(`🌐 Environment: ${this.authStrategy.getEnvironmentInfo().name}`);
+        } else {
+          this.output(`🌐 Provider: ${this.authProvider}`);
+        }
         this.output(`🔗 MCP URL: ${this.mcpRemoteUrl}`);
         const clientId = this.clientId ? `${this.clientId.substring(0, 10)}...` : 'Not set';
         this.output(`🔑 Client ID: ${clientId}`);
         this.output(`🎯 Auth Method: ${this.authMethod}`);
         const tokens = this.loadTokens();
         if (tokens) {
-          const isExpired = AdobeMCPWrapper.isTokenExpired(tokens);
+          const isExpired = AuthMCPWrapper.isTokenExpired(tokens);
           this.output(`📊 Token Status: ${isExpired ? '❌ Expired' : '✅ Valid'}`);
           this.output(`🔐 Access Token (first 20): ${tokens.access_token.substring(0, 20)}...`);
           this.output(`⏰ Expires In: ${tokens.expires_in}s`);
@@ -634,38 +564,43 @@ Available commands:
   }
 }
 
-// Main function - simplified
+// Main function
 async function main() {
   const args = process.argv.slice(2);
   const isMCPMode = !process.stdin.isTTY || process.env.MCP_MODE === 'true';
 
   if (args.length === 0) {
     console.log(`
-Adobe MCP Remote Wrapper v1.1.0
+MCP Remote Wrapper v1.2.0
 
 Usage: npx mcp-remote-with-okta <mcp-url> [command]
 
 Commands: authenticate, status, token, clear, debug, help
 
 Environment Variables:
-  ADOBE_CLIENT_ID          - Adobe IMS Client ID (required)
-  ADOBE_SCOPE              - OAuth scope (default: AdobeID,openid)
-  ADOBE_AUTH_METHOD        - jwt or access_token (default: jwt)
-  ADOBE_IMS_ENV            - prod, stage, dev (default: prod)
-  ADOBE_DEBUG              - Enable debug mode (default: false)
-  ADOBE_AUTO_REFRESH       - Enable auto-refresh (default: true)
-  ADOBE_REFRESH_THRESHOLD  - Refresh threshold in minutes (default: 10)
+  AUTH_PROVIDER            - Authentication provider: 'adobe' or 'okta' (default: adobe)
 
-Examples:
-  npx mcp-remote-with-okta https://my-server.com/mcp
-  ADOBE_DEBUG=true npx mcp-remote-with-okta https://my-server.com/mcp status
+  --- Adobe ---
+  ADOBE_CLIENT_ID          - Adobe IMS Client ID (required for adobe)
+  ADOBE_SCOPE              - OAuth scope (default: AdobeID,openid)
+  ADOBE_IMS_ENV            - prod, stage, dev (default: prod)
+
+  --- Okta ---
+  OKTA_CLIENT_ID           - Okta Client ID (required for okta)
+  OKTA_DOMAIN              - Okta domain (e.g., dev-12345.okta.com)
+  OKTA_SCOPE               - OAuth scope for Okta
+
+  --- General ---
+  AUTH_METHOD              - jwt or access_token (default: jwt)
+  DEBUG_MODE               - Enable debug mode (default: false)
+  AUTO_REFRESH             - Enable auto-refresh (default: true)
+  REFRESH_THRESHOLD        - Refresh threshold in minutes (default: 10)
     `);
     return;
   }
 
-  const wrapper = new AdobeMCPWrapper(args[0], { isMCPMode });
+  const wrapper = new AuthMCPWrapper(args[0], { isMCPMode });
 
-  // Cleanup handlers
   const cleanup = () => {
     wrapper.cleanup();
     process.exit(0);
@@ -700,5 +635,5 @@ if (require.main === module) {
   });
 }
 
-module.exports = AdobeMCPWrapper;
+module.exports = AuthMCPWrapper;
 module.exports.main = main;

@@ -48,7 +48,8 @@
   "jest": {
     "testEnvironment": "node",
     "collectCoverageFrom": [
-      "index.js"
+      "index.js",
+      "auth-strategy.js"
     ],
     "coverageReporters": [
       "text",
