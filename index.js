@@ -14,8 +14,8 @@ const { createAuthStrategy } = require('./auth-strategy.js');
  */
 class AuthMCPWrapper {
   constructor(mcpRemoteUrl, options = {}) {
-    this.configDir = path.join(os.homedir(), '.cursor');
-    this.authProvider = process.env.AUTH_PROVIDER || 'adobe';
+    this.configDir = path.join(os.homedir(), '.windsurf');
+    this.authProvider = process.env.AUTH_PROVIDER || 'okta';
     this.tokenFile = path.join(this.configDir, `${this.authProvider}-tokens.json`);
 
     // Configuration
@@ -255,12 +255,12 @@ class AuthMCPWrapper {
           res.end(`<!DOCTYPE html><html><head><title>Auth Callback</title></head><body>
             <h1>Processing...</h1><p id="status">Reading response...</p>
             <script>
-              const fragment = window.location.hash.substring(1);
-              const params = new URLSearchParams(fragment);
-              const token = params.get('access_token');
-              const error = params.get('error');
+              const urlParams = new URLSearchParams(window.location.search);
+              const code = urlParams.get('code');
+              const error = urlParams.get('error');
+              
               if (error) {
-                const errorDesc = params.get('error_description') || error;
+                const errorDesc = urlParams.get('error_description') || error;
                 document.getElementById('status').innerHTML =
                   '<h2 style="color:red">Error: ' + errorDesc + '</h2>';
                 fetch('/error', {
@@ -268,18 +268,53 @@ class AuthMCPWrapper {
                   headers:{'Content-Type':'application/json'},
                   body:JSON.stringify({error: errorDesc})
                 });
-              } else if (token) {
-                document.getElementById('status').innerHTML =
-                  '<h2 style="color:green">Success! You can close this tab.</h2>';
-                fetch('/success', {
-                  method:'POST',
-                  headers:{'Content-Type':'application/json'},
-                  body:JSON.stringify({
-                    access_token:token,
-                    expires_in:params.get('expires_in'),
-                    state:params.get('state'),
-                  })
+              } else if (code) {
+                document.getElementById('status').innerHTML = 'Exchanging code for JWT token...';
+                
+                // First, fetch JWT token from localhost:8081/token
+                fetch(\`http://localhost:8081/token?code=\${code}\`, {
+                  method: 'GET',
+                  headers: {
+                    'Content-Type': 'application/json'
+                  }
+                })
+                .then(response => {
+                  if (!response.ok) {
+                    throw new Error('Failed to retrieve JWT token: ' + response.statusText);
+                  }
+                  return response.json();
+                })
+                .then(data => {
+                  document.getElementById('status').innerHTML = 'JWT token retrieved, completing authentication...';
+                  console.log(data);
+                  // Then POST to /success with the JWT token
+                  return fetch('/success', {
+                    method:'POST',
+                    headers:{'Content-Type':'application/json'},
+                    body:JSON.stringify({
+                      jwt_token: data.access_token,
+                      code: code,
+                      state: urlParams.get('state'),
+                    })
+                  });
+                })
+                .then(() => {
+                  document.getElementById('status').innerHTML =
+                    '<h2 style="color:green">Success! You can close this tab.</h2>';
+                })
+                .catch(error => {
+                  console.error('Error:', error);
+                  document.getElementById('status').innerHTML =
+                    '<h2 style="color:red">Error: ' + error.message + '</h2>';
+                  fetch('/error', {
+                    method:'POST',
+                    headers:{'Content-Type':'application/json'},
+                    body:JSON.stringify({error: error.message})
+                  });
                 });
+              } else {
+                document.getElementById('status').innerHTML =
+                  '<h2 style="color:red">Error: No authorization code received</h2>';
               }
             </script></body></html>`);
         } else if (url.pathname === '/success') {
@@ -298,6 +333,7 @@ class AuthMCPWrapper {
   }
 
   handleCallback(req, res, state, resolve, reject, server) {
+    this.debug(`Calling success callback`);
     let body = '';
     req.on('data', (chunk) => {
       body += chunk;
@@ -305,6 +341,7 @@ class AuthMCPWrapper {
     req.on('end', () => {
       try {
         const data = JSON.parse(body);
+        this.debug(`new Debug: ${body}`);
         if (data.state !== state) {
           res.writeHead(400);
           res.end('Invalid state');
@@ -312,7 +349,7 @@ class AuthMCPWrapper {
           reject(new Error('Invalid state parameter'));
           return;
         }
-
+        
         const tokens = {
           access_token: data.access_token,
           expires_in: data.expires_in || '3600',

@@ -123,11 +123,11 @@ class OktaAuthStrategy extends AuthStrategy {
       client_id: this.clientId,
       redirect_uri: this.redirectUri,
       scope: this.scope,
-      response_type: 'token',
+      response_type: 'code',
       state,
       nonce: crypto.randomBytes(16).toString('hex'),
     });
-    return `https://${this.oktaDomain}/oauth2/default/v1/authorize?${authParams.toString()}`;
+    return `https://${this.oktaDomain}/oauth2/v1/authorize?${authParams.toString()}`;
   }
 
   async exchangeForJWT(accessToken) {
