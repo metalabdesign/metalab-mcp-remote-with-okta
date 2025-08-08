@@ -14,33 +14,23 @@ const { createAuthStrategy } = require('./auth-strategy.js');
  */
 class AuthMCPWrapper {
   constructor(mcpRemoteUrl, options = {}) {
-    this.configDir = path.join(os.homedir(), '.windsurf');
-    this.authProvider = process.env.AUTH_PROVIDER || 'okta';
-    this.tokenFile = path.join(this.configDir, `${this.authProvider}-tokens.json`);
+    this.configDir = path.join(os.homedir(), '.metalab');
+    this.authProvider = 'okta';
+    this.tokenFile = path.join(this.configDir, `${this.authProvider}-token.json`);
 
     // Configuration
-    if (this.authProvider === 'okta') {
-      this.clientId = process.env.OKTA_CLIENT_ID;
-      this.scope = process.env.OKTA_SCOPE || 'openid profile email';
-    } else {
-      this.clientId = process.env.ADOBE_CLIENT_ID;
-      this.scope = process.env.ADOBE_SCOPE || 'AdobeID,openid';
-    }
-
-    this.authMethod = process.env.AUTH_METHOD || 'jwt';
-    this.imsEnvironment = process.env.ADOBE_IMS_ENV;
+    this.clientId = process.env.OKTA_CLIENT_ID;
+    this.scope = process.env.OKTA_SCOPE || 'openid profile email';
     this.oktaDomain = process.env.OKTA_DOMAIN;
-    this.redirectUri = process.env.REDIRECT_URI || 'http://localhost:8080/callback';
+    this.mcpTokenUri = process.env.MCP_TOKEN_URI || 'http://localhost:8000/token';
 
     // Debug and auto-refresh
-    this.debugMode = process.env.DEBUG_MODE === 'true'
-      || process.env.DEBUG === this.authProvider
-      || process.env.DEBUG === '*';
+    this.debugMode = process.env.DEBUG_MODE === 'true';
     this.autoRefresh = process.env.AUTO_REFRESH !== 'false';
     this.refreshThresholdMinutes = parseInt(process.env.REFRESH_THRESHOLD, 10) || 10;
 
     // MCP configuration
-    this.mcpRemoteUrl = mcpRemoteUrl || 'https://spacecat.experiencecloud.live/api/v1/mcp';
+    this.mcpRemoteUrl = mcpRemoteUrl;
     this.mcpArgs = [
       'npx',
       'mcp-remote@latest',
@@ -114,12 +104,8 @@ class AuthMCPWrapper {
       errors.push(`${this.authProvider.toUpperCase()}_CLIENT_ID is required`);
     }
 
-    if (this.authProvider === 'okta' && !this.oktaDomain) {
+    if (!this.oktaDomain) {
       errors.push('OKTA_DOMAIN is required for Okta authentication');
-    }
-
-    if (this.authMethod && !['jwt', 'access_token'].includes(this.authMethod)) {
-      errors.push('AUTH_METHOD must be "jwt" or "access_token"');
     }
 
     if (errors.length > 0) {
@@ -271,8 +257,8 @@ class AuthMCPWrapper {
               } else if (code) {
                 document.getElementById('status').innerHTML = 'Exchanging code for JWT token...';
                 
-                // First, fetch JWT token from localhost:8081/token
-                fetch(\`http://localhost:8081/token?code=\${code}\`, {
+                // First, fetch JWT token from localhost:3000/token
+                fetch(\`${this.mcpTokenUri}?code=\${code}\`, {
                   method: 'GET',
                   headers: {
                     'Content-Type': 'application/json'
@@ -292,8 +278,7 @@ class AuthMCPWrapper {
                     method:'POST',
                     headers:{'Content-Type':'application/json'},
                     body:JSON.stringify({
-                      jwt_token: data.access_token,
-                      code: code,
+                      ...data,
                       state: urlParams.get('state'),
                     })
                   });
@@ -462,14 +447,7 @@ class AuthMCPWrapper {
       throw new Error(`${this.authProvider.toUpperCase()}_CLIENT_ID environment variable not found`);
     }
 
-    let authToken;
-    if (this.authMethod === 'access_token') {
-      this.output('🔑 Using access token authentication...');
-      authToken = await this.getValidToken();
-    } else {
-      this.output('🔄 Using JWT authentication...');
-      authToken = await this.getValidJWT();
-    }
+    const authToken = await this.getValidToken();
 
     this.output('🚀 Launching MCP remote...');
 
@@ -501,11 +479,7 @@ class AuthMCPWrapper {
         this.output(`\n🎉 Authentication completed!\n🔑 Token: ${token.substring(0, 20)}...`);
       },
       status: () => {
-        if (this.authProvider === 'adobe') {
-          this.output(`🌐 Environment: ${this.authStrategy.getEnvironmentInfo().name}`);
-        } else {
-          this.output(`🌐 Provider: ${this.authProvider}`);
-        }
+        this.output(`🌐 Provider: ${this.authProvider}`);
         const tokens = this.loadTokens();
         if (tokens) {
           const isExpired = AuthMCPWrapper.isTokenExpired(tokens);
@@ -552,15 +526,10 @@ Available commands:
       },
       debug: async () => {
         this.output('🔍 Debug Information:');
-        if (this.authProvider === 'adobe') {
-          this.output(`🌐 Environment: ${this.authStrategy.getEnvironmentInfo().name}`);
-        } else {
-          this.output(`🌐 Provider: ${this.authProvider}`);
-        }
+        this.output(`🌐 Provider: ${this.authProvider}`);
         this.output(`🔗 MCP URL: ${this.mcpRemoteUrl}`);
         const clientId = this.clientId ? `${this.clientId.substring(0, 10)}...` : 'Not set';
         this.output(`🔑 Client ID: ${clientId}`);
-        this.output(`🎯 Auth Method: ${this.authMethod}`);
         const tokens = this.loadTokens();
         if (tokens) {
           const isExpired = AuthMCPWrapper.isTokenExpired(tokens);
@@ -606,7 +575,9 @@ async function main() {
   const args = process.argv.slice(2);
   const isMCPMode = !process.stdin.isTTY || process.env.MCP_MODE === 'true';
 
-  if (args.length === 0) {
+  const mcpRemoteUri = args[0] || process.env.MCP_REMOTE_URI;
+
+  if (args.includes('--help') || !mcpRemoteUri || !mcpRemoteUri.endsWith('/mcp')) {
     console.log(`
 MCP Remote Wrapper v1.2.0
 
@@ -615,14 +586,6 @@ Usage: npx mcp-remote-with-okta <mcp-url> [command]
 Commands: authenticate, status, token, clear, debug, help
 
 Environment Variables:
-  AUTH_PROVIDER            - Authentication provider: 'adobe' or 'okta' (default: adobe)
-
-  --- Adobe ---
-  ADOBE_CLIENT_ID          - Adobe IMS Client ID (required for adobe)
-  ADOBE_SCOPE              - OAuth scope (default: AdobeID,openid)
-  ADOBE_IMS_ENV            - prod, stage, dev (default: prod)
-
-  --- Okta ---
   OKTA_CLIENT_ID           - Okta Client ID (required for okta)
   OKTA_DOMAIN              - Okta domain (e.g., dev-12345.okta.com)
   OKTA_SCOPE               - OAuth scope for Okta
@@ -636,7 +599,8 @@ Environment Variables:
     return;
   }
 
-  const wrapper = new AuthMCPWrapper(args[0], { isMCPMode });
+
+  const wrapper = new AuthMCPWrapper(mcpRemoteUri, { isMCPMode });
 
   const cleanup = () => {
     wrapper.cleanup();

@@ -124,4 +124,5 @@ build/Release
 .Spotlight-V100
 .Trashes
 ehthumbs.db
-Thumbs.db 
+Thumbs.db
+.npmrc
