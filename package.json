@@ -4,14 +4,14 @@
   "description": "MCP remote server with Okta authentication wrapper",
   "main": "index.js",
   "bin": {
-    "mcp-remote-with-okta": "./index.js"
+    "mcp-remote-with-okta": "dist/index.js"
   },
   "scripts": {
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
-    "lint": "eslint index.js",
-    "lint:fix": "eslint index.js --fix",
+    "lint": "eslint src/index.js",
+    "lint:fix": "eslint src/index.js --fix",
     "build": "node build.js",
     "start": "node build.js && ./dist/index.js"
   },
