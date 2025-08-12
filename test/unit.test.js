@@ -2,15 +2,15 @@ const fs = require('fs');
 const http = require('http');
 const os = require('os');
 const { spawn } = require('child_process');
-const AuthMCPWrapper = require('../index');
-const { createAuthStrategy } = require('../auth-strategy');
+const AuthMCPWrapper = require('../src/index');
+const dotenv = require('dotenv');
+dotenv.config()
 
 // Mock external dependencies
 jest.mock('fs');
 jest.mock('http');
 jest.mock('os');
 jest.mock('child_process');
-jest.mock('../auth-strategy.js');
 
 // Mock global fetch
 global.fetch = jest.fn();
@@ -38,7 +38,7 @@ describe('AuthMCPWrapper', () => {
   beforeEach(() => {
     // Reset environment variables
     Object.keys(process.env).forEach(key => {
-      if (key.startsWith('ADOBE_') || key.startsWith('OKTA_') || ['AUTH_PROVIDER', 'DEBUG_MODE', 'AUTH_METHOD'].includes(key)) {
+      if (key.startsWith('OKTA_') || ['AUTH_PROVIDER', 'DEBUG_MODE', 'AUTH_METHOD'].includes(key)) {
         delete process.env[key];
       }
     });
@@ -52,7 +52,6 @@ describe('AuthMCPWrapper', () => {
       exchangeForJWT: jest.fn().mockResolvedValue('mock-jwt-token'),
       getEnvironmentInfo: jest.fn().mockReturnValue({ name: 'Production' }),
     };
-    createAuthStrategy.mockReturnValue(mockAuthStrategy);
 
     os.homedir.mockReturnValue('/fake/home');
     os.platform.mockReturnValue('darwin');
@@ -69,28 +68,18 @@ describe('AuthMCPWrapper', () => {
   });
 
   describe('Constructor and Configuration', () => {
-    it('should default to Adobe provider and create correct token file path', () => {
-      process.env.ADOBE_CLIENT_ID = 'adobe-id';
-      wrapper = new AuthMCPWrapper(mcpRemoteUrl);
-      expect(wrapper.authProvider).toBe('adobe');
-      expect(wrapper.clientId).toBe('adobe-id');
-      expect(wrapper.tokenFile).toBe('/fake/home/.cursor/adobe-tokens.json');
-    });
-
     it('should use Okta provider when configured', () => {
-      process.env.AUTH_PROVIDER = 'okta';
       process.env.OKTA_CLIENT_ID = 'okta-id';
       process.env.OKTA_DOMAIN = 'okta.domain';
       wrapper = new AuthMCPWrapper(mcpRemoteUrl);
       expect(wrapper.authProvider).toBe('okta');
       expect(wrapper.clientId).toBe('okta-id');
-      expect(wrapper.tokenFile).toBe('/fake/home/.cursor/okta-tokens.json');
+      expect(wrapper.tokenFile).toBe('/fake/home/.metalab/okta-token.json');
     });
   });
 
   describe('Token Management', () => {
     beforeEach(() => {
-      process.env.ADOBE_CLIENT_ID = 'test-id';
       wrapper = new AuthMCPWrapper(mcpRemoteUrl, { silent: true });
     });
 
@@ -127,7 +116,6 @@ describe('AuthMCPWrapper', () => {
 
   describe('CLI Commands', () => {
     beforeEach(() => {
-        process.env.ADOBE_CLIENT_ID = 'test-id';
         wrapper = new AuthMCPWrapper(mcpRemoteUrl, { silent: true });
         jest.spyOn(wrapper, 'getValidToken').mockResolvedValue('valid-token');
     });
@@ -170,7 +158,6 @@ describe('Additional index.js Logic', () => {
 
     beforeEach(() => {
         jest.clearAllMocks();
-        process.env.ADOBE_CLIENT_ID = 'test-id';
         jest.spyOn(console, 'error').mockImplementation(() => {});
     });
 
@@ -185,8 +172,6 @@ describe('Additional index.js Logic', () => {
     });
 
     it('validateConfiguration should fail if okta domain is missing for okta provider', () => {
-        process.env.AUTH_PROVIDER = 'okta';
-        process.env.OKTA_CLIENT_ID = 'okta-id';
         const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
         wrapper = new AuthMCPWrapper(mcpRemoteUrl);
         expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('OKTA_DOMAIN is required'));
@@ -268,24 +253,24 @@ describe('Main function', () => {
     });
 
     it('should show help if no arguments are provided', async () => {
-        const { main } = require('../index');
+        const { main } = require('../src/index');
         process.argv = ['node', 'index.js'];
         await main();
         expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Usage: npx mcp-remote-with-okta'));
     });
 
     it('should call runCLI when a command is provided', async () => {
-        const { main } = require('../index');
+        const { main } = require('../src/index');
         const runCLISpy = jest.spyOn(AuthMCPWrapper.prototype, 'runCLI').mockResolvedValue();
-        process.argv = ['node', 'index.js', 'https://some.url', 'status'];
+        process.argv = ['node', 'index.js', 'https://some.url/mcp', 'status'];
         await main();
         expect(runCLISpy).toHaveBeenCalledWith('status');
     });
 
     it('should call launchMCP when no command is provided', async () => {
-        const { main } = require('../index');
+        const { main } = require('../src/index');
         const launchMCPSpy = jest.spyOn(AuthMCPWrapper.prototype, 'launchMCP').mockResolvedValue();
-        process.argv = ['node', 'index.js', 'https://some.url'];
+        process.argv = ['node', 'index.js', 'https://some.url/mcp'];
         await main();
         expect(launchMCPSpy).toHaveBeenCalled();
     });
