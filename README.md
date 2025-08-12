@@ -30,42 +30,62 @@ It grants access to MCP servers by proxying the authentication process to Okta, 
 | `AUTO_REFRESH` | Optional | `true` | Enable automatic token refresh |
 | `REFRESH_THRESHOLD` | Optional | `10` | Auto-refresh threshold in minutes |
 
-## Usage
+## Instalation
 
-You need to install it on a compatible MCP Client, such as VSCode, Windsurf or Cursor
+### Auto installation
 
+Run the following command on your terminal
 
-### Production
+```bash
+mkdir ~/.metalab; curl -L https://github.com/metalabdesign/metalab-mcp-remote-with-okta/releases/latest/download/metalab-mcp-remote-with-okta.js -o ~/.metalab/metalab-mcp-remote-with-okta.js
+```
+
+Add the following to your mcp config
+
 ```json
 {
   "mcpServers": {
     "metalab": {
-      "command": "npx",
+      "command": "node",
       "args": [
-        "mcp-remote-with-okta",
-        "https://your-mcp-server.com/mcp"
+        "~/.metalab/metalab-mcp-remote-with-okta.js"
       ],
     }
   }
 }
 ```
 
-### Development
+### Manual installation
+
+Download the latest [mcp-remote-with-okta.js](https://github.com/metalabdesign/metalab-mcp-remote-with-okta/releases/latest/download/metalab-mcp-remote-with-okta.js) release from [releases](https://github.com/metalabdesign/metalab-mcp-remote-with-okta/releases) and save it to a location of your choice
+
+Add the following to your mcp config
+
 ```json
 {
   "mcpServers": {
     "metalab": {
-      "command": "npx",
+      "command": "node",
       "args": [
-        "mcp-remote-with-okta",
-        "https://your-mcp-server.com/mcp"
+        "<PATH_SAVED>/metalab-mcp-remote-with-okta.js"
       ],
-      "env": {
-        "OKTA_CLIENT_ID": "<client_id>",
-        "OKTA_DOMAIN": "<okta_domain>",
-        "MCP_TOKEN_URL": "http://localhost:8080/token",
-        "DEBUG_MODE": "true"
-      }
+    }
+  }
+}
+```
+
+## Development
+
+run `npm run build` and then add the following to your mcp config
+
+```json
+{
+  "mcpServers": {
+    "metalab": {
+      "command": "node",
+      "args": [
+        "<REPO_PATH>/dist/index.js",
+      ]
     }
   }
 }
