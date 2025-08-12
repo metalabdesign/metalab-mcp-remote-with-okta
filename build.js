@@ -16,9 +16,10 @@ const distDir = path.join(__dirname, 'dist');
 const envPath = path.join(__dirname, '.env');
 
 // Ensure dist directory exists
-if (!fs.existsSync(distDir)) {
-  fs.mkdirSync(distDir, { recursive: true });
+if (fs.existsSync(distDir)) {
+  fs.rmSync(distDir, { recursive: true });
 }
+fs.mkdirSync(distDir, { recursive: true });
 
 if(!fs.existsSync(envPath)) {
   console.error('❌ .env file not found');
@@ -30,7 +31,6 @@ const envs = dotenv.parse(fs.readFileSync(envPath));
 const injectableEnvs = [
   'OKTA_CLIENT_ID',
   'OKTA_DOMAIN',
-  'OKTA_SCOPE',
   'MCP_TOKEN_URI',
   'MCP_REMOTE_URI',
 ]

@@ -1,12 +1,36 @@
-#!/usr/bin/env node
-
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
 const os = require('os');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
-const { createAuthStrategy } = require('./auth-strategy.js');
+
+class OktaAuthStrategy {
+  constructor(config) {
+    this.config = config;
+    this.clientId = this.config.clientId;
+    this.scope = this.config.scope || 'openid profile email';
+    this.redirectUri = this.config.redirectUri || 'http://localhost:8080/callback';
+    this.oktaDomain = this.config.oktaDomain;
+  }
+
+  getAuthUrl(state) {
+    const authParams = new URLSearchParams({
+      client_id: this.clientId,
+      redirect_uri: this.redirectUri,
+      scope: this.scope,
+      response_type: 'code',
+      state,
+      nonce: crypto.randomBytes(16).toString('hex'),
+    });
+    return `https://${this.oktaDomain}/oauth2/v1/authorize?${authParams.toString()}`;
+  }
+
+  async exchangeForJWT(accessToken) {
+    this.config.output('✅ Using Okta access token as JWT');
+    return accessToken;
+  }
+}
 
 /**
  * Generic Authentication and MCP Wrapper
@@ -45,7 +69,7 @@ class AuthMCPWrapper {
     this.isMCPMode = options.isMCPMode || false;
     this.refreshTimer = null;
 
-    this.authStrategy = createAuthStrategy(this);
+    this.authStrategy = new OktaAuthStrategy(this);
 
     this.validateConfiguration();
     this.debug(`Configuration loaded for ${this.authProvider} provider.`);
@@ -638,3 +662,4 @@ if (require.main === module) {
 
 module.exports = AuthMCPWrapper;
 module.exports.main = main;
+module.exports.OktaAuthStrategy = OktaAuthStrategy;

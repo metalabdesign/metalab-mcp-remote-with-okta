@@ -1,0 +1,140 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., v1.3.1)'
+        required: true
+        default: 'v1.3.1'
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Create .env file for build
+      run: |
+        cp .env.example .env
+        # Add values from GitHub secrets
+        echo "OKTA_CLIENT_ID=${{ secrets.OKTA_CLIENT_ID }}" >> .env
+        echo "OKTA_DOMAIN=${{ secrets.OKTA_DOMAIN }}" >> .env
+        echo "MCP_TOKEN_URI=${{ secrets.MCP_TOKEN_URI }}" >> .env
+        echo "MCP_REMOTE_URI=${{ secrets.MCP_REMOTE_URI }}" >> .env
+        
+    - name: Run tests
+      run: npm test
+      
+    - name: Lint code
+      run: npm run lint
+      
+    - name: Build project
+      run: npm run build
+      
+    - name: Verify build output
+      run: |
+        ls -la dist/
+        test -f dist/index.js || (echo "Build failed: index.js not found in dist/" && exit 1)
+        
+    - name: Create release archive
+      run: |
+        # Create a release directory with necessary files
+        mkdir -p release
+        cp dist/index.js release/
+        cp package.json release/
+        cp README.md release/
+        cp LICENSE release/
+        cp CHANGELOG.md release/
+        
+        # Create tarball
+        tar -czf metalab-mcp-remote-with-okta.tar.gz -C release .
+        
+        # Create zip file
+        cd release && zip -r ../metalab-mcp-remote-with-okta.zip . && cd ..
+        
+    - name: Get version from tag or input
+      id: get_version
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+        else
+          echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        fi
+        
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ steps.get_version.outputs.version }}
+        release_name: Release ${{ steps.get_version.outputs.version }}
+        body: |
+          ## Changes in ${{ steps.get_version.outputs.version }}
+          
+          Built from commit: ${{ github.sha }}
+          
+          ### Installation
+          
+          Download the appropriate archive below and extract it. The main executable is `index.js`.
+          
+          ### Usage
+          
+          ```bash
+          node index.js
+          ```
+          
+          Or make it executable and run directly:
+          ```bash
+          chmod +x index.js
+          ./index.js
+          ```
+          
+          See [README.md](https://github.com/metalabdesign/metalab-mcp-remote-with-okta/blob/main/README.md) for configuration details.
+        draft: true
+        prerelease: false
+        
+    - name: Upload Release Asset (tar.gz)
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./metalab-mcp-remote-with-okta.tar.gz
+        asset_name: metalab-mcp-remote-with-okta-${{ steps.get_version.outputs.version }}.tar.gz
+        asset_content_type: application/gzip
+        
+    - name: Upload Release Asset (zip)
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./metalab-mcp-remote-with-okta.zip
+        asset_name: metalab-mcp-remote-with-okta-${{ steps.get_version.outputs.version }}.zip
+        asset_content_type: application/zip
+        
+    - name: Upload standalone index.js
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./dist/index.js
+        asset_name: index.js
+        asset_content_type: application/javascript
