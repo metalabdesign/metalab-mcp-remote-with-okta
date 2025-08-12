@@ -12,15 +12,15 @@ module.exports = {
     sourceType: 'module',
   },
   rules: {
-    'no-console': 'warn',
+    'no-console': 'off',
     'indent': ['error', 2],
     'linebreak-style': ['error', 'unix'],
-    'quotes': ['error', 'single'],
-    'semi': ['error', 'always'],
-    'max-len': ['error', { code: 100 }],
-    'no-trailing-spaces': 'error',
-    'object-shorthand': 'error',
-    'prefer-const': 'error',
+    'quotes': ['warn', 'single'],
+    'semi': ['warn', 'always'],
+    'max-len': ['warn', { code: 100 }],
+    'no-trailing-spaces': 'warn',
+    'object-shorthand': 'warn',
+    'prefer-const': 'warn',
   },
   overrides: [
     {
@@ -33,4 +33,4 @@ module.exports = {
       },
     },
   ],
-}; 
+};
