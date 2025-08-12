@@ -1,3 +1,4 @@
+/* eslint-disable max-len */
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
@@ -247,7 +248,7 @@ class AuthMCPWrapper {
    */
   async startAuthFlow() {
     if (!this.clientId) {
-      throw new Error(`Client ID not found. Please set ${this.authProvider.toUpperCase()}_CLIENT_ID.`);
+      throw new Error('Client ID not found. Please set OKTA_CLIENT_ID.');
     }
 
     const state = crypto.randomBytes(16).toString('hex');
@@ -342,7 +343,7 @@ class AuthMCPWrapper {
   }
 
   handleCallback(req, res, state, resolve, reject, server) {
-    this.debug(`Calling success callback`);
+    this.debug('Calling success callback');
     let body = '';
     req.on('data', (chunk) => {
       body += chunk;
@@ -358,7 +359,7 @@ class AuthMCPWrapper {
           reject(new Error('Invalid state parameter'));
           return;
         }
-        
+
         const tokens = {
           access_token: data.access_token,
           expires_in: data.expires_in || '3600',
@@ -445,7 +446,7 @@ class AuthMCPWrapper {
   async healthCheck() {
     try {
       const healthUrl = `${this.getApiRootUrl()}/health`;
-      const headers = { 'User-Agent': `mcp-remote-with-okta/1.2.0` };
+      const headers = { 'User-Agent': 'mcp-remote-with-okta/1.2.0' };
       const response = await fetch(healthUrl, { method: 'HEAD', headers });
       const isHealthy = response.ok;
       this.output(isHealthy ? '✅ MCP server is healthy' : '⚠️ MCP server health check failed');

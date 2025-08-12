@@ -33,22 +33,22 @@ const injectableEnvs = [
   'OKTA_DOMAIN',
   'MCP_TOKEN_URI',
   'MCP_REMOTE_URI',
-]
+];
 
 // Function to inject environment variables into code
 function injectEnvVars(content) {
   // Replace process.env references with actual values or fallbacks
   let modifiedContent = content;
-  
+
   // Add environment variable injection at the top of the file
   const envInjection = `
 // Environment variables injected at build time
 const ENV_DEFAULTS = ${JSON.stringify({
-  ...injectableEnvs.reduce((acc, key) => {
-    acc[key] = envs[key];
-    return acc;
-  }, {}),
-}, null, 2)};
+    ...injectableEnvs.reduce((acc, key) => {
+      acc[key] = envs[key];
+      return acc;
+    }, {}),
+  }, null, 2)};
 
 // Override with actual environment variables if available
 Object.keys(ENV_DEFAULTS).forEach(key => {
@@ -81,7 +81,7 @@ function copyFile(srcPath, destPath) {
   }
 
   fs.writeFileSync(destPath, processedContent);
-  
+
   // Make executable if it's the main file
   if (path.basename(srcPath) === 'index.js') {
     fs.chmodSync(destPath, '755');
@@ -95,11 +95,11 @@ function copyDirectory(src, dest) {
   }
 
   const entries = fs.readdirSync(src, { withFileTypes: true });
-  
+
   for (const entry of entries) {
     const srcPath = path.join(src, entry.name);
     const destPath = path.join(dest, entry.name);
-    
+
     if (entry.isDirectory()) {
       copyDirectory(srcPath, destPath);
     } else {
@@ -114,11 +114,11 @@ console.log('🔨 Building local-auth-proxy-nodejs...');
 try {
   // Copy source files to dist
   copyDirectory(srcDir, distDir);
-  
+
   console.log('✅ Build completed successfully!');
   console.log(`📦 Output directory: ${distDir}`);
   console.log('🚀 Ready for publishing!');
-  
+
 } catch (error) {
   console.error('❌ Build failed:', error.message);
   process.exit(1);
