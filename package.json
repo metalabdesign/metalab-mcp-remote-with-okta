@@ -2,7 +2,7 @@
   "name": "@metalabdesign/metalab-mcp-remote-with-okta",
   "version": "1.3.0",
   "description": "MCP remote server with Okta authentication wrapper",
-  "main": "index.js",
+  "main": "src/index.js",
   "bin": {
     "mcp-remote-with-okta": "dist/index.js"
   },
@@ -13,7 +13,7 @@
     "lint": "eslint src/index.js",
     "lint:fix": "eslint src/index.js --fix",
     "build": "node build.js",
-    "start": "node build.js && ./dist/index.js"
+    "start": "node build.js && node dist/index.js"
   },
   "keywords": [
     "mcp",
