@@ -453,7 +453,7 @@ class AuthMCPWrapper {
 
     const mcpProcess = spawn(this.mcpArgs[0], [
       ...this.mcpArgs.slice(1),
-      '--header', `Authorization:Bearer ${authToken}`,
+      '--header', `Authorization: Bearer ${authToken}`,
     ], { stdio: 'inherit', env: process.env });
 
     mcpProcess.on('error', (error) => {
