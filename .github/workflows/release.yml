@@ -94,51 +94,8 @@ jobs:
           
           Built from commit: ${{ github.sha }}
 
-          ### Installation
-
-          #### Auto installation
-
-          Run the following command on your terminal
-
-          ```bash
-          mkdir ~/.metalab;
-          curl -L https://github.com/metalabdesign/metalab-mcp-remote-with-okta/releases/latest/download/metalab-mcp-remote-with-okta.js -o ~/.metalab/metalab-mcp-remote-with-okta.js
-          ```
-
-          Add the following to your mcp config
-
-          ```json
-          {
-            "mcpServers": {
-              "metalab": {
-                "command": "node",
-                "args": [
-                  "~/.metalab/metalab-mcp-remote-with-okta.js"
-                ],
-              }
-            }
-          }
-          ```
-
-          #### Manual installation
-          Download the latest [mcp-remote-with-okta.js](https://github.com/metalabdesign/metalab-mcp-remote-with-okta/releases/latest/download/metalab-mcp-remote-with-okta.js) release from [releases](https://github.com/metalabdesign/metalab-mcp-remote-with-okta/releases) and save it to a location of your choice
-
-          Add the following to your mcp config
-
-          ```json
-          {
-            "mcpServers": {
-              "metalab": {
-                "command": "node",
-                "args": [
-                  "<PATH_SAVED>/metalab-mcp-remote-with-okta.js"
-                ],
-              }
-            }
-          }
-          ```
+          Follow install instructions in [README.md](https://github.com/metalabdesign/metalab-mcp-remote-with-okta#instalation)
           
-          See [README.md](https://github.com/metalabdesign/metalab-mcp-remote-with-okta/blob/main/README.md) for configuration details.
         draft: false
         prerelease: false
         
