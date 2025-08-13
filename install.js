@@ -23,12 +23,12 @@ if (fs.existsSync(filePath)) {
 }
 
 // Ensure mcpServer exists
-if (!data.mcpServer || typeof data.mcpServer !== 'object') {
-  data.mcpServer = {};
+if (!data.mcpServers || typeof data.mcpServers !== 'object') {
+  data.mcpServers = {};
 }
 
 // Add/update "metalab"
-data.mcpServer.metalab = {
+data.mcpServers.metalab = {
   command: 'node',
   args: ['~/.metalab/metalab-mcp-remote-with-okta.js']
 };
