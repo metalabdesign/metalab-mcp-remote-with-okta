@@ -30,12 +30,17 @@ jobs:
       
     - name: Create .env file for build
       run: |
-        cp .env.example .env
+        touch .env
         # Add values from GitHub secrets
-        echo "OKTA_CLIENT_ID=${{ secrets.OKTA_CLIENT_ID }}" >> .env
-        echo "OKTA_DOMAIN=${{ secrets.OKTA_DOMAIN }}" >> .env
-        echo "MCP_TOKEN_URI=${{ secrets.MCP_TOKEN_URI }}" >> .env
-        echo "MCP_REMOTE_URI=${{ secrets.MCP_REMOTE_URI }}" >> .env
+        echo "OKTA_CLIENT_ID=$OKTA_CLIENT_ID" >> .env
+        echo "OKTA_DOMAIN=$OKTA_DOMAIN" >> .env
+        echo "MCP_TOKEN_URI=$MCP_TOKEN_URI" >> .env
+        echo "MCP_REMOTE_URI=$MCP_REMOTE_URI" >> .env
+      env:
+        OKTA_CLIENT_ID: ${{ secrets.OKTA_CLIENT_ID }}
+        OKTA_DOMAIN: ${{ secrets.OKTA_DOMAIN }}
+        MCP_TOKEN_URI: ${{ secrets.MCP_TOKEN_URI }}
+        MCP_REMOTE_URI: ${{ secrets.MCP_REMOTE_URI }}
         
     - name: Run tests
       run: npm test
@@ -96,7 +101,8 @@ jobs:
           Run the following command on your terminal
 
           ```bash
-          mkdir ~/.metalab; curl -L https://github.com/metalabdesign/metalab-mcp-remote-with-okta/releases/latest/download/metalab-mcp-remote-with-okta.js -o ~/.metalab/metalab-mcp-remote-with-okta.js
+          mkdir ~/.metalab;
+          curl -L https://github.com/metalabdesign/metalab-mcp-remote-with-okta/releases/latest/download/metalab-mcp-remote-with-okta.js -o ~/.metalab/metalab-mcp-remote-with-okta.js
           ```
 
           Add the following to your mcp config

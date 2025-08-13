@@ -37,7 +37,8 @@ It grants access to MCP servers by proxying the authentication process to Okta, 
 Run the following command on your terminal
 
 ```bash
-mkdir ~/.metalab; curl -L https://github.com/metalabdesign/metalab-mcp-remote-with-okta/releases/latest/download/metalab-mcp-remote-with-okta.js -o ~/.metalab/metalab-mcp-remote-with-okta.js
+mkdir ~/.metalab;
+curl -L https://github.com/metalabdesign/metalab-mcp-remote-with-okta/releases/latest/download/metalab-mcp-remote-with-okta.js -o ~/.metalab/metalab-mcp-remote-with-okta.js
 ```
 
 Add the following to your mcp config
