@@ -30,7 +30,7 @@ if (!data.mcpServers || typeof data.mcpServers !== 'object') {
 // Add/update "metalab"
 data.mcpServers.metalab = {
   command: 'node',
-  args: ['~/.metalab/metalab-mcp-remote-with-okta.js']
+  args: [path.join(os.homedir(), '.metalab', 'metalab-mcp-remote-with-okta.js')]
 };
 
 // Save file with pretty formatting
