@@ -34,7 +34,7 @@ It grants access to MCP servers by proxying the authentication process to Okta, 
 
 ### Auto installation
 
-Run the following command on your terminal
+Run the following command on your terminal, then reopen Windsurf or refresh the MCP config
 
 ```bash
 mkdir ~/.metalab;
