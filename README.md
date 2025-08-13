@@ -39,21 +39,7 @@ Run the following command on your terminal
 ```bash
 mkdir ~/.metalab;
 curl -L https://github.com/metalabdesign/metalab-mcp-remote-with-okta/releases/latest/download/metalab-mcp-remote-with-okta.js -o ~/.metalab/metalab-mcp-remote-with-okta.js
-```
-
-Add the following to your mcp config
-
-```json
-{
-  "mcpServers": {
-    "metalab": {
-      "command": "node",
-      "args": [
-        "~/.metalab/metalab-mcp-remote-with-okta.js"
-      ],
-    }
-  }
-}
+curl -fsSL https://raw.githubusercontent.com/metalabdesign/metalab-mcp-remote-with-okta/main/install.js | node
 ```
 
 ### Manual installation
