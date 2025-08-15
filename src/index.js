@@ -249,7 +249,7 @@ class AuthMCPWrapper {
    */
   async startAuthFlow() {
     if (!this.clientId) {
-      throw new Error('Client ID not found. Please set OKTA_CLIENT_ID.');
+      throw new Error(`Client ID not found. Please set ${this.authProvider.toUpperCase()}_CLIENT_ID.`);
     }
 
     const state = crypto.randomBytes(16).toString('hex');
@@ -270,7 +270,7 @@ class AuthMCPWrapper {
               const urlParams = new URLSearchParams(window.location.search);
               const code = urlParams.get('code');
               const error = urlParams.get('error');
-              
+
               if (error) {
                 const errorDesc = urlParams.get('error_description') || error;
                 document.getElementById('status').innerHTML =
@@ -282,7 +282,7 @@ class AuthMCPWrapper {
                 });
               } else if (code) {
                 document.getElementById('status').innerHTML = 'Exchanging code for JWT token...';
-                
+
                 // First, fetch JWT token from localhost:3000/token
                 fetch(\`${this.mcpTokenUri}?code=\${code}\`, {
                   method: 'GET',
@@ -664,4 +664,3 @@ if (require.main === module) {
 
 module.exports = AuthMCPWrapper;
 module.exports.main = main;
-module.exports.OktaAuthStrategy = OktaAuthStrategy;
