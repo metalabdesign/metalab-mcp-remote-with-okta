@@ -664,3 +664,4 @@ if (require.main === module) {
 
 module.exports = AuthMCPWrapper;
 module.exports.main = main;
+module.exports.OktaAuthStrategy = OktaAuthStrategy;
