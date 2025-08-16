@@ -41,8 +41,7 @@ class OktaAuthStrategy {
 class AuthMCPWrapper {
   constructor(mcpRemoteUrl, options = {}) {
     this.configDir = path.join(os.homedir(), '.metalab');
-    this.authProvider = 'okta';
-    this.tokenFile = path.join(this.configDir, `${this.authProvider}-token.json`);
+    this.tokenFile = path.join(this.configDir, 'okta-token.json');
 
     // Configuration
     this.clientId = process.env.OKTA_CLIENT_ID;
@@ -74,7 +73,6 @@ class AuthMCPWrapper {
     this.authStrategy = new OktaAuthStrategy(this);
 
     this.validateConfiguration();
-    this.debug(`Configuration loaded for ${this.authProvider} provider.`);
     this.debug(`Okta Domain: ${this.oktaDomain}`);
     this.debug(`Client ID: ${this.clientId}`);
   }
@@ -127,11 +125,11 @@ class AuthMCPWrapper {
   validateConfiguration() {
     const errors = [];
     if (!this.clientId) {
-      errors.push(`${this.authProvider.toUpperCase()}_CLIENT_ID is required`);
+      errors.push('OKTA_CLIENT_ID is required');
     }
 
     if (!this.oktaDomain) {
-      errors.push('OKTA_DOMAIN is required for Okta authentication');
+      errors.push('OKTA_DOMAIN is required');
     }
 
     if (errors.length > 0) {
@@ -249,13 +247,13 @@ class AuthMCPWrapper {
    */
   async startAuthFlow() {
     if (!this.clientId) {
-      throw new Error(`Client ID not found. Please set ${this.authProvider.toUpperCase()}_CLIENT_ID.`);
+      throw new Error('Client ID not found. Please set OKTA_CLIENT_ID.');
     }
 
     const state = crypto.randomBytes(16).toString('hex');
     const authUrl = this.authStrategy.getAuthUrl(state);
 
-    this.output(`🚀 Starting ${this.authProvider} OAuth flow...`);
+    this.output('🚀 Starting Okta OAuth flow...');
     this.openBrowser(authUrl);
 
     return new Promise((resolve, reject) => {
@@ -467,10 +465,10 @@ class AuthMCPWrapper {
    * MCP launch
    */
   async launchMCP() {
-    this.output(`🔐 ${this.authProvider.toUpperCase()} MCP Wrapper starting...`);
+    this.output('🔐 Okta MCP Wrapper starting...');
 
     if (!this.clientId) {
-      throw new Error(`${this.authProvider.toUpperCase()}_CLIENT_ID environment variable not found`);
+      throw new Error('OKTA_CLIENT_ID environment variable not found');
     }
 
     const authToken = await this.getValidToken();
@@ -497,7 +495,7 @@ class AuthMCPWrapper {
    * CLI interface
    */
   async runCLI(command) {
-    this.output(`🔐 ${this.authProvider.toUpperCase()} Authentication CLI\n`);
+    this.output('🔐 Okta Authentication CLI\n');
 
     const commands = {
       authenticate: async () => {
@@ -505,7 +503,6 @@ class AuthMCPWrapper {
         this.output(`\n🎉 Authentication completed!\n🔑 Token: ${token.substring(0, 20)}...`);
       },
       status: () => {
-        this.output(`🌐 Provider: ${this.authProvider}`);
         const tokens = this.loadTokens();
         if (tokens) {
           const isExpired = AuthMCPWrapper.isTokenExpired(tokens);
@@ -552,7 +549,6 @@ Available commands:
       },
       debug: async () => {
         this.output('🔍 Debug Information:');
-        this.output(`🌐 Provider: ${this.authProvider}`);
         this.output(`🔗 MCP URL: ${this.mcpRemoteUrl}`);
         const clientId = this.clientId ? `${this.clientId.substring(0, 10)}...` : 'Not set';
         this.output(`🔑 Client ID: ${clientId}`);
