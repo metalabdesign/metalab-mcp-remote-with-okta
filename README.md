@@ -39,7 +39,7 @@ Run the following command on your terminal, then reopen Windsurf or refresh the 
 ```bash
 mkdir ~/.metalab;
 curl -L https://github.com/metalabdesign/metalab-mcp-remote-with-okta/releases/latest/download/metalab-mcp-remote-with-okta.js -o ~/.metalab/metalab-mcp-remote-with-okta.js
-curl -fsSL https://raw.githubusercontent.com/metalabdesign/metalab-mcp-remote-with-okta/main/install.js | node
+curl -fsSL https://github.com/metalabdesign/metalab-mcp-remote-with-okta/releases/latest/download/install.js | node
 ```
 
 ### Manual installation
