@@ -14,7 +14,8 @@
     "lint:fix": "eslint src/index.js --fix",
     "build:local-app": "node build.js",
     "build:install": "esbuild install.js --bundle --platform=node --target=node22 --outfile=dist/install.js --banner:js='#!/usr/bin/env node' && chmod +x dist/install.js",
-    "start": "node build.js && node dist/index.js"
+    "build": "pnpm build:local-app && pnpm build:install",
+    "start": "pnpm build:local-app && node dist/index.js"
   },
   "keywords": [
     "mcp",
