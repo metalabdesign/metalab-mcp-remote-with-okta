@@ -20,13 +20,10 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '18'
-        cache: 'npm'
+      uses: pnpm/action-setup@v4
 
     - name: Install dependencies
-      run: npm ci
+      run: pnpm install --frozen-lockfile
 
     - name: Create .env file for build
       run: |
@@ -43,16 +40,15 @@ jobs:
         MCP_REMOTE_URI: ${{ secrets.MCP_REMOTE_URI }}
 
     - name: Run tests
-      run: npm test
+      run: pnpm test
 
     - name: Lint code
-      run: npm run lint
+      run: pnpm run lint
 
     - name: Build project (local app + install)
       run: |
         set -e
-        npm run build:local-app
-        npm run build:install
+        pnpm build
         # Ensure install.js is executable even if the package script chmods a different file
         if [ -f dist/install.js ]; then chmod +x dist/install.js; fi
 
