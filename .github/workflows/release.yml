@@ -151,12 +151,17 @@ jobs:
         asset_name: install.js
         asset_content_type: application/javascript
 
-    - name: Upload standalone setup-mcp.command
+    - name: Zip setup-mcp.command
+      run: |
+        chmod +x scripts/setup-mcp.command
+        (cd scripts && zip -r ../setup-mcp.zip setup-mcp.command)
+
+    - name: Upload setup-mcp.command.zip
       uses: actions/upload-release-asset@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./scripts/setup-mcp.command
-        asset_name: setup-mcp.command
-        asset_content_type: application/octet-stream
+        asset_path: ./setup-mcp.zip
+        asset_name: setup-mcp.zip
+        asset_content_type: application/zip
