@@ -20,6 +20,12 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22.x'
+        cache: 'pnpm'
+
+    - name: Setup pnpm
       uses: pnpm/action-setup@v4
       with:
         version: 'latest'
@@ -51,7 +57,7 @@ jobs:
       run: |
         set -e
         pnpm build
-        # Ensure install.js is executable even if the package script chmods a different file
+        # Ensure install.js is executable
         if [ -f dist/install.js ]; then chmod +x dist/install.js; fi
 
     - name: Verify build output
@@ -100,7 +106,7 @@ jobs:
 
           Built from commit: ${{ github.sha }}
 
-          Follow install instructions in [README.md](https://github.com/metalabdesign/metalab-mcp-remote-with-okta#instalation)
+          Follow install instructions in [README.md](https://github.com/metalabdesign/metalab-mcp-remote-with-okta#installation)
 
         draft: false
         prerelease: false
@@ -136,7 +142,6 @@ jobs:
         asset_content_type: application/javascript
 
     - name: Upload standalone install.js
-      if: ${{ hashFiles('dist/install.js') != '' }}
       uses: actions/upload-release-asset@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
