@@ -30,7 +30,7 @@ It grants access to MCP servers by proxying the authentication process to Okta, 
 | `AUTO_REFRESH` | Optional | `true` | Enable automatic token refresh |
 | `REFRESH_THRESHOLD` | Optional | `10` | Auto-refresh threshold in minutes |
 
-## Instalation
+## Installation
 
 ### Auto installation
 
