@@ -66,6 +66,11 @@ jobs:
         test -f dist/index.js || (echo "Build failed: index.js not found in dist/" && exit 1)
         test -f dist/install.js || (echo "Build failed: install.js not found in dist/" && exit 1)
 
+    - name: Ensure setup-mcp.command is executable
+      run: |
+        test -f scripts/setup-mcp.command || (echo "Missing scripts/setup-mcp.command" && exit 1)
+        chmod +x scripts/setup-mcp.command
+
     - name: Create release archive
       run: |
         # Create a release directory with necessary files
@@ -77,6 +82,7 @@ jobs:
         cp README.md release/
         cp LICENSE release/
         cp CHANGELOG.md release/
+        cp scripts/setup-mcp.command release/
 
         # Create tarball
         tar -czf metalab-mcp-remote-with-okta.tar.gz -C release .
@@ -150,3 +156,13 @@ jobs:
         asset_path: ./dist/install.js
         asset_name: install.js
         asset_content_type: application/javascript
+
+    - name: Upload standalone setup-mcp.command
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./scripts/setup-mcp.command
+        asset_name: setup-mcp.command
+        asset_content_type: application/octet-stream
