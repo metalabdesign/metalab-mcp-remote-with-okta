@@ -31,7 +31,8 @@ jobs:
       with:
         version: 'latest'
         standalone: true
-      run: pnpm --version
+
+    - run: pnpm --version
 
     - name: Install dependencies
       run: pnpm install --frozen-lockfile
