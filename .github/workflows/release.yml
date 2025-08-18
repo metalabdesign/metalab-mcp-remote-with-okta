@@ -150,3 +150,13 @@ jobs:
         asset_path: ./dist/install.js
         asset_name: install.js
         asset_content_type: application/javascript
+
+    - name: Upload standalone setup-mcp.command
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./scripts/setup-mcp.command
+        asset_name: setup-mcp.command
+        asset_content_type: application/octet-stream
