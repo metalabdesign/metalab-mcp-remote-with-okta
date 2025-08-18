@@ -37,9 +37,11 @@ step "Ensure nvm lines in ~/.zshrc" \
     '
     ZSHRC="$HOME/.zshrc"
     touch "$ZSHRC"
+
     NVM_LINES="export NVM_DIR=\"\$HOME/.nvm\"
 [ -s \"\$NVM_DIR/nvm.sh\" ] && \. \"\$NVM_DIR/nvm.sh\"  # This loads nvm
 [ -s \"\$NVM_DIR/bash_completion\" ] && \. \"\$NVM_DIR/bash_completion\"  # This loads nvm bash_completion"
+
     if ! grep -Fxq "export NVM_DIR=\"\$HOME/.nvm\"" "$ZSHRC"; then
         echo -e "\n# Added by script based on official curl script to enable nvm\n$NVM_LINES" >> "$ZSHRC"
         echo "✅ nvm lines added to $ZSHRC"
@@ -65,6 +67,7 @@ fi
 step "Set Node.js $NODE_VERSION as default" \
 "
 resolved=\$(nvm version default 2>/dev/null || true)
+
 if [ \"\$resolved\" = \"v$NODE_VERSION\" ]; then
     echo -e \"✅ Default nvm alias already points to \$resolved.\"
 else
@@ -93,7 +96,7 @@ step "Download Metalab MCP (Okta) script" \
 echo -e "✅ Metalab MCP (Okta) script downloaded"
 
 step "Run Metalab installer" \
-    "curl -fsSL https://raw.githubusercontent.com/metalabdesign/metalab-mcp-remote-with-okta/main/install.js | node"
+    "curl -fsSL https://github.com/metalabdesign/metalab-mcp-remote-with-okta/releases/latest/download/install.js | node"
 
 echo ""
 echo -e "🎉 All $TOTAL_STEPS steps completed successfully — closing..."
