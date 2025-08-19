@@ -25,7 +25,7 @@ class OktaAuthStrategy {
       state,
       nonce: crypto.randomBytes(16).toString('hex'),
     });
-    return `https://${this.oktaDomain}/oauth2/v1/authorize?${authParams.toString()}`;
+    return `${this.oktaDomain}/oauth2/v1/authorize?${authParams.toString()}`;
   }
 
   async exchangeForJWT(accessToken) {
@@ -72,6 +72,11 @@ class AuthMCPWrapper {
     this.refreshTimer = null;
 
     this.authStrategy = new OktaAuthStrategy(this);
+
+    // ---- Login singleflight + debounce + lockfile ----
+    this.loginInFlight = null;            // coalesce concurrent logins
+    this.lastBrowserLaunch = 0;           // per-process debounce
+    this.loginLockFile = path.join(this.configDir, `${this.authProvider}-login.lock`);
 
     this.validateConfiguration();
     this.debug(`Configuration loaded for ${this.authProvider} provider.`);
@@ -152,15 +157,25 @@ class AuthMCPWrapper {
    */
   loadTokens() {
     try {
-      if (fs.existsSync(this.tokenFile)) {
-        const tokens = JSON.parse(fs.readFileSync(this.tokenFile, 'utf8'));
-        this.debug(`Tokens loaded, expired: ${AuthMCPWrapper.isTokenExpired(tokens)}`);
-        return tokens;
+      if (!fs.existsSync(this.tokenFile)) {
+        return null;
       }
-    } catch (error) {
-      this.debug(`Token loading failed: ${error.message}`);
+      const raw = JSON.parse(fs.readFileSync(this.tokenFile, 'utf8'));
+
+      if (!raw || typeof raw.access_token !== 'string') {
+        this.debug('Token file incomplete; ignoring');
+        return null;
+      }
+
+      // normalize numbers
+      raw.timestamp  = Number(raw.timestamp)  || 0;
+      raw.expires_in = Number(raw.expires_in) || 3600;
+
+      return raw;
+    } catch (err) {
+      this.error(`Bad token file: ${err.message}`);
+      return null;
     }
-    return null;
   }
 
   saveTokens(tokens) {
@@ -214,6 +229,7 @@ class AuthMCPWrapper {
       this.refreshTimer = null;
       this.debug('Auto-refresh timer cleared');
     }
+    this._clearLock();
   }
 
   static isTokenExpired(tokens) {
@@ -244,6 +260,43 @@ class AuthMCPWrapper {
     });
   }
 
+  // ---- Cross-process lock helpers ----
+  _lockPath() { return this.loginLockFile; }
+
+  /**
+   * Returns true if the login lock file is fresh (i.e. within the maxAgeMs time range).
+   * @param {number} maxAgeMs - The maximum age of the lock file in milliseconds.
+   * @returns {boolean} true if the lock file is fresh, false otherwise.
+   */
+  _lockFresh(maxAgeMs = 30_000) {
+    try {
+      if (!fs.existsSync(this._lockPath())) return false;
+      const stat = fs.statSync(this._lockPath());
+      return (Date.now() - stat.mtimeMs) < maxAgeMs;
+    } catch { return false; }
+  }
+
+  /**
+   * Write the current timestamp to the lock file. This is used to prevent concurrent login flows.
+   * Ignores any errors that occur while writing the lock file.
+   */
+  _writeLock() {
+    try {
+      this.ensureConfigDir();
+      fs.writeFileSync(this._lockPath(), String(Date.now()));
+    } catch {
+      // ignore
+    }
+  }
+
+  _clearLock() {
+    try {
+      if (fs.existsSync(this._lockPath())) fs.unlinkSync(this._lockPath());
+    } catch {
+      // ignore
+    }
+  }
+
   /**
    * OAuth flow
    */
@@ -252,95 +305,127 @@ class AuthMCPWrapper {
       throw new Error('Client ID not found. Please set OKTA_CLIENT_ID.');
     }
 
+    // Singleflight: coalesce concurrent callers within this process
+    if (this.loginInFlight) {
+      this.debug('🔒 Login already in flight; awaiting existing flow');
+      return this.loginInFlight;
+    }
+
     const state = crypto.randomBytes(16).toString('hex');
     const authUrl = this.authStrategy.getAuthUrl(state);
 
     this.output(`🚀 Starting ${this.authProvider} OAuth flow...`);
     this.openBrowser(authUrl);
 
-    return new Promise((resolve, reject) => {
-      const server = http.createServer((req, res) => {
-        const url = new URL(req.url, 'http://localhost:8080');
+    this.loginInFlight = (async () => {
+      const state = crypto.randomBytes(16).toString('hex');
+      const authUrl = this.authStrategy.getAuthUrl(state);
 
-        if (url.pathname === '/callback') {
-          res.writeHead(200, { 'Content-Type': 'text/html' });
-          res.end(`<!DOCTYPE html><html><head><title>Auth Callback</title></head><body>
-            <h1>Processing...</h1><p id="status">Reading response...</p>
-            <script>
-              const urlParams = new URLSearchParams(window.location.search);
-              const code = urlParams.get('code');
-              const error = urlParams.get('error');
-              
-              if (error) {
-                const errorDesc = urlParams.get('error_description') || error;
-                document.getElementById('status').innerHTML =
-                  '<h2 style="color:red">Error: ' + errorDesc + '</h2>';
-                fetch('/error', {
-                  method:'POST',
-                  headers:{'Content-Type':'application/json'},
-                  body:JSON.stringify({error: errorDesc})
-                });
-              } else if (code) {
-                document.getElementById('status').innerHTML = 'Exchanging code for JWT token...';
-                
-                // First, fetch JWT token from localhost:3000/token
-                fetch(\`${this.mcpTokenUri}?code=\${code}\`, {
-                  method: 'GET',
-                  headers: {
-                    'Content-Type': 'application/json'
-                  }
-                })
-                .then(response => {
-                  if (!response.ok) {
-                    throw new Error('Failed to retrieve JWT token: ' + response.statusText);
-                  }
-                  return response.json();
-                })
-                .then(data => {
-                  document.getElementById('status').innerHTML = 'JWT token retrieved, completing authentication...';
-                  console.log(data);
-                  // Then POST to /success with the JWT token
-                  return fetch('/success', {
-                    method:'POST',
-                    headers:{'Content-Type':'application/json'},
-                    body:JSON.stringify({
-                      ...data,
-                      state: urlParams.get('state'),
-                    })
-                  });
-                })
-                .then(() => {
+      this.output(`🚀 Starting ${this.authProvider} OAuth flow...`);
+
+
+      return new Promise((resolve, reject) => {
+        const server = http.createServer((req, res) => {
+          const url = new URL(req.url, 'http://localhost:8080');
+
+          if (url.pathname === '/callback') {
+            res.writeHead(200, {'Content-Type': 'text/html'});
+            res.end(`<!DOCTYPE html><html><head><title>Auth Callback</title></head><body>
+              <h1>Processing...</h1><p id="status">Reading response...</p>
+              <script>
+                const urlParams = new URLSearchParams(window.location.search);
+                const code = urlParams.get('code');
+                const error = urlParams.get('error');
+
+                if (error) {
+                  const errorDesc = urlParams.get('error_description') || error;
                   document.getElementById('status').innerHTML =
-                    '<h2 style="color:green">Success! You can close this tab.</h2>';
-                })
-                .catch(error => {
-                  console.error('Error:', error);
-                  document.getElementById('status').innerHTML =
-                    '<h2 style="color:red">Error: ' + error.message + '</h2>';
+                    '<h2 style="color:red">Error: ' + errorDesc + '</h2>';
                   fetch('/error', {
                     method:'POST',
                     headers:{'Content-Type':'application/json'},
-                    body:JSON.stringify({error: error.message})
+                    body:JSON.stringify({error: errorDesc})
                   });
-                });
-              } else {
-                document.getElementById('status').innerHTML =
-                  '<h2 style="color:red">Error: No authorization code received</h2>';
-              }
-            </script></body></html>`);
-        } else if (url.pathname === '/success') {
-          this.handleCallback(req, res, state, resolve, reject, server);
-        } else if (url.pathname === '/error') {
-          AuthMCPWrapper.handleError(req, res, reject, server);
-        } else {
-          res.writeHead(404);
-          res.end('<h1>Not Found</h1>');
-        }
-      });
+                } else if (code) {
+                  document.getElementById('status').innerHTML = 'Exchanging code for JWT token...';
 
-      server.listen(8080, () => this.output('🔗 Waiting for callback on localhost:8080'));
-      server.on('error', (err) => reject(new Error(`Server error: ${err.message}`)));
+                  // First, fetch JWT token from localhost:3000/token
+                  fetch(\`${this.mcpTokenUri}?code=\${code}\`, {
+                    method: 'GET',
+                    headers: {
+                      'Content-Type': 'application/json'
+                    }
+                  })
+                  .then(response => {
+                    if (!response.ok) {
+                      throw new Error('Failed to retrieve JWT token: ' + response.statusText);
+                    }
+                    return response.json();
+                  })
+                  .then(data => {
+                    document.getElementById('status').innerHTML = 'JWT token retrieved, completing authentication...';
+                    console.log(data);
+                    // Then POST to /success with the JWT token
+                    return fetch('/success', {
+                      method:'POST',
+                      headers:{'Content-Type':'application/json'},
+                      body:JSON.stringify({
+                        ...data,
+                        state: urlParams.get('state'),
+                      })
+                    });
+                  })
+                  .then(() => {
+                    document.getElementById('status').innerHTML =
+                      '<h2 style="color:green">Success! You can close this tab.</h2>';
+                  })
+                  .catch(error => {
+                    console.error('Error:', error);
+                    document.getElementById('status').innerHTML =
+                      '<h2 style="color:red">Error: ' + error.message + '</h2>';
+                    fetch('/error', {
+                      method:'POST',
+                      headers:{'Content-Type':'application/json'},
+                      body:JSON.stringify({error: error.message})
+                    });
+                  });
+                } else {
+                  document.getElementById('status').innerHTML =
+                    '<h2 style="color:red">Error: No authorization code received</h2>';
+                }
+              </script></body></html>`);
+          } else if (url.pathname === '/success') {
+            this.handleCallback(req, res, state, resolve, reject, server);
+          } else if (url.pathname === '/error') {
+            AuthMCPWrapper.handleError(req, res, reject, server);
+          } else {
+            res.writeHead(404);
+            res.end('<h1>Not Found</h1>');
+          }
+        });
+
+        server.listen(8080, () => this.output('🔗 Waiting for callback on localhost:8080'));
+        server.on('error', (err) => reject(new Error(`Server error: ${err.message}`)));
+
+
+        // Debounce (per-process) + lockfile (cross-process) before opening the browser
+        this._writeLock();
+        const now = Date.now();
+        const debounced = (now - this.lastBrowserLaunch) < 10_000; // 10s
+        const anotherProcActive = this._lockFresh(30_000);         // 30s window
+
+        if (debounced || anotherProcActive) {
+          this.debug(`🛑 Skipping browser open (debounced=${debounced}, lockFresh=${anotherProcActive})`);
+        } else {
+          this.lastBrowserLaunch = now;
+          this.openBrowser(authUrl);
+        }
+      })().finally(() => {
+        this._clearLock();
+        this.loginInFlight = null;
+      });
     });
+    return this.loginInFlight;
   }
 
   handleCallback(req, res, state, resolve, reject, server) {
@@ -382,6 +467,13 @@ class AuthMCPWrapper {
   }
 
   openBrowser(url) {
+    const now = Date.now();
+    if ((now - this.lastBrowserLaunch) < 10_000) { // 10s debounce
+      this.debug('🛑 Debounced browser open within 10s window');
+      return;
+    }
+    this.lastBrowserLaunch = now;
+
     const commands = { darwin: 'open', win32: 'start' };
     const command = commands[os.platform()] || 'xdg-open';
     try {
@@ -630,6 +722,7 @@ Environment Variables:
 
   const cleanup = () => {
     wrapper.cleanup();
+    wrapper._clearLock();
     process.exit(0);
   };
   process.on('SIGINT', cleanup);
