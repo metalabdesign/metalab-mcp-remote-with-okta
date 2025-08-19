@@ -30,16 +30,47 @@ It grants access to MCP servers by proxying the authentication process to Okta, 
 | `AUTO_REFRESH` | Optional | `true` | Enable automatic token refresh |
 | `REFRESH_THRESHOLD` | Optional | `10` | Auto-refresh threshold in minutes |
 
-## Instalation
+## Installation
 
 ### Auto installation
+
+#### Setup Instructions for MCP
+
+1. [Download setup-mcp.zip](https://github.com/metalabdesign/metalab-mcp-remote-with-okta/releases/download/v1.0.3/setup-mcp.zip)
+
+2. Double-click the downloaded file to extract its contents.
+
+3. Open the **script** folder from the extracted files.
+
+4. Double-click **setup-mcp.command** to start the setup.
+
+#### Allowing the Script to Run (macOS)
+
+If you see a security warning, follow these steps:
+
+1. Open **System Settings** → **Privacy & Security**.
+   ![allow-install-1](assets/allow-install-1.png)
+
+2. Scroll down until you see the message:
+   *“setup-mcp.command was blocked to protect your Mac.”*
+   Click **Open Anyway**.
+   ![allow-install-2](assets/allow-install-2.png)
+
+3. Confirm by clicking **Open Anyway** again.
+   ![allow-install-3](assets/allow-install-3.png)
+
+4. Authenticate with Touch ID or your password to allow execution.
+   ![allow-install-4](assets/allow-install-4.png)
+
+
+### Curl installation
 
 Run the following command on your terminal, then reopen Windsurf or refresh the MCP config
 
 ```bash
 mkdir ~/.metalab;
 curl -L https://github.com/metalabdesign/metalab-mcp-remote-with-okta/releases/latest/download/metalab-mcp-remote-with-okta.js -o ~/.metalab/metalab-mcp-remote-with-okta.js
-curl -fsSL https://raw.githubusercontent.com/metalabdesign/metalab-mcp-remote-with-okta/main/install.js | node
+curl -fsSL https://github.com/metalabdesign/metalab-mcp-remote-with-okta/releases/latest/download/install.js | node
 ```
 
 ### Manual installation

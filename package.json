@@ -12,8 +12,10 @@
     "test:coverage": "jest --coverage",
     "lint": "eslint src/index.js",
     "lint:fix": "eslint src/index.js --fix",
-    "build": "node build.js",
-    "start": "node build.js && node dist/index.js"
+    "build:local-app": "node build.js",
+    "build:install": "webpack --config webpack.config.js && chmod +x dist/install.js",
+    "build": "pnpm build:local-app && pnpm build:install",
+    "start": "pnpm build:local-app && node dist/index.js"
   },
   "keywords": [
     "mcp",
@@ -41,12 +43,15 @@
   },
   "homepage": "https://github.com/metalabdesign/metalab-mcp-remote-with-okta#readme",
   "dependencies": {
+    "jsonc-parser": "^3.3.1",
     "mcp-remote": "^0.1.12"
   },
   "devDependencies": {
     "dotenv": "^17.2.1",
     "eslint": "^8.57.0",
-    "jest": "^29.7.0"
+    "jest": "^29.7.0",
+    "webpack": "^5.95.0",
+    "webpack-cli": "^5.1.4"
   },
   "jest": {
     "testEnvironment": "node",

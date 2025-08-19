@@ -1,8 +1,7 @@
-#!/usr/bin/env node
-
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { modify, applyEdits } = require('jsonc-parser');
 
 const filePath = path.join(os.homedir(), '.codeium', 'windsurf', 'mcp_config.json');
 const dirPath = path.dirname(filePath);
@@ -10,30 +9,37 @@ const dirPath = path.dirname(filePath);
 // Ensure directory exists
 fs.mkdirSync(dirPath, { recursive: true });
 
-// Load or initialize JSON
-let data = {};
+// Read original text (JSONC allowed)
+let raw = '{}\n';
 if (fs.existsSync(filePath)) {
   try {
-    const raw = fs.readFileSync(filePath, 'utf8');
-    data = JSON.parse(raw);
+    raw = fs.readFileSync(filePath, 'utf8');
   } catch (err) {
     console.error(`Error: existing JSON in ${filePath} is invalid.`);
     process.exit(1);
   }
 }
 
-// Ensure mcpServer exists
-if (!data.mcpServers || typeof data.mcpServers !== 'object') {
-  data.mcpServers = {};
-}
-
-// Add/update "metalab"
-data.mcpServers.metalab = {
-  command: 'node',
-  args: [path.join(os.homedir(), '.metalab', 'metalab-mcp-remote-with-okta.js')]
+// The value we want to set at path mcpServers.metalab
+const value = {
+  command: path.join(os.homedir(), '.nvm', 'versions', 'node', 'v22.18.0', 'bin', 'node'),
+  args: [path.join(os.homedir(), '.metalab', 'metalab-mcp-remote-with-okta.js')],
 };
 
-// Save file with pretty formatting
-fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
+// Compute minimal edits that create parents if missing and set/replace the value
+const edits = modify(
+  raw,
+  ['mcpServers', 'metalab'],
+  value,
+  {
+    formattingOptions: { insertSpaces: true, tabSize: 2, eol: '\n' },
+  }
+);
+
+// Apply edits to the original text
+const updated = applyEdits(raw, edits);
+
+// Write back — comments and unrelated formatting remain intact
+fs.writeFileSync(filePath, updated, 'utf8');
 
 console.log(`✅ Done: updated ${filePath}`);

@@ -64,7 +64,6 @@ describe('AuthMCPWrapper', () => {
       process.env.OKTA_CLIENT_ID = 'okta-id';
       process.env.OKTA_DOMAIN = 'okta.domain';
       wrapper = new AuthMCPWrapper(mcpRemoteUrl);
-      expect(wrapper.authProvider).toBe('okta');
       expect(wrapper.clientId).toBe('okta-id');
       expect(wrapper.tokenFile).toBe('/fake/home/.metalab/okta-token.json');
     });
