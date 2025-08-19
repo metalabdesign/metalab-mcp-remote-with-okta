@@ -22,7 +22,7 @@ if (fs.existsSync(filePath)) {
 
 // The value we want to set at path mcpServers.metalab
 const value = {
-  command: 'node',
+  command: path.join(os.homedir(), '.nvm', 'versions', 'node', 'v22.18.0', 'bin', 'node'),
   args: [path.join(os.homedir(), '.metalab', 'metalab-mcp-remote-with-okta.js')],
 };
 

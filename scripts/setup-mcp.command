@@ -1,5 +1,5 @@
 #!/bin/bash
-TOTAL_STEPS=9
+TOTAL_STEPS=8
 STEP=0
 NODE_VERSION="22.18.0"
 NPM_VERSION="10.9.3"
@@ -62,17 +62,6 @@ else
 fi
 "
 
-step "Set Node.js $NODE_VERSION as default" \
-"
-resolved=\$(nvm version default 2>/dev/null || true)
-if [ \"\$resolved\" = \"v$NODE_VERSION\" ]; then
-    echo -e \"✅ Default nvm alias already points to \$resolved.\"
-else
-    echo -e \"⬇️  Setting Node.js $NODE_VERSION as default...\"
-    nvm alias default $NODE_VERSION
-fi
-"
-
 step "Ensure npm $NPM_VERSION is installed" \
 "
 current_npm=\$(npm -v 2>/dev/null || echo 'none')
@@ -97,6 +86,6 @@ step "Run Metalab installer" \
 
 echo ""
 echo -e "🎉 All $TOTAL_STEPS steps completed successfully — closing..."
-sleep 5
+sleep 3
 osascript -e 'tell application "Terminal" to close front window' &
 exit 0
