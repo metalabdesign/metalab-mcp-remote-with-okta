@@ -12,7 +12,8 @@ class OktaAuthStrategy {
     this.config = config;
     this.clientId = this.config.clientId;
     this.scope = this.config.scope || 'openid profile email';
-    this.redirectUri = this.config.redirectUri || 'http://localhost:8080/callback';
+    this.redirectUri =
+      this.config.redirectUri || 'http://localhost:8080/callback';
     this.oktaDomain = this.config.oktaDomain;
   }
 
@@ -25,7 +26,9 @@ class OktaAuthStrategy {
       state,
       nonce: crypto.randomBytes(16).toString('hex'),
     });
-    return `https://${this.oktaDomain}/oauth2/v1/authorize?${authParams.toString()}`;
+    return `https://${
+      this.oktaDomain
+    }/oauth2/v1/authorize?${authParams.toString()}`;
   }
 
   async exchangeForJWT(accessToken) {
@@ -47,12 +50,14 @@ class AuthMCPWrapper {
     this.clientId = process.env.OKTA_CLIENT_ID;
     this.scope = process.env.OKTA_SCOPE || 'openid profile email';
     this.oktaDomain = process.env.OKTA_DOMAIN;
-    this.mcpTokenUri = process.env.MCP_TOKEN_URI || 'http://localhost:8000/token';
+    this.mcpTokenUri =
+      process.env.MCP_TOKEN_URI || 'http://localhost:8000/token';
 
     // Debug and auto-refresh
     this.debugMode = process.env.DEBUG_MODE === 'true';
     this.autoRefresh = process.env.AUTO_REFRESH !== 'false';
-    this.refreshThresholdMinutes = parseInt(process.env.REFRESH_THRESHOLD, 10) || 10;
+    this.refreshThresholdMinutes =
+      parseInt(process.env.REFRESH_THRESHOLD, 10) || 10;
 
     // MCP configuration
     this.mcpRemoteUrl = mcpRemoteUrl;
@@ -152,7 +157,9 @@ class AuthMCPWrapper {
     try {
       if (fs.existsSync(this.tokenFile)) {
         const tokens = JSON.parse(fs.readFileSync(this.tokenFile, 'utf8'));
-        this.debug(`Tokens loaded, expired: ${AuthMCPWrapper.isTokenExpired(tokens)}`);
+        this.debug(
+          `Tokens loaded, expired: ${AuthMCPWrapper.isTokenExpired(tokens)}`
+        );
         return tokens;
       }
     } catch (error) {
@@ -181,16 +188,20 @@ class AuthMCPWrapper {
 
     const expiresIn = parseInt(tokens.expires_in, 10) || 3600;
     const refreshThresholdMs = this.refreshThresholdMinutes * 60 * 1000;
-    const timeUntilRefresh = (tokens.timestamp + (expiresIn * 1000))
-      - refreshThresholdMs - Date.now();
+    const timeUntilRefresh =
+      tokens.timestamp + expiresIn * 1000 - refreshThresholdMs - Date.now();
 
     if (timeUntilRefresh > 0) {
-      this.debug(`Auto-refresh scheduled in ${Math.round(timeUntilRefresh / 1000)}s`);
+      this.debug(
+        `Auto-refresh scheduled in ${Math.round(timeUntilRefresh / 1000)}s`
+      );
       this.refreshTimer = setTimeout(async () => {
         try {
           await this.refreshTokenIfNeeded();
         } catch (error) {
-          this.error('⚠️ Auto-refresh failed, manual re-authentication may be required');
+          this.error(
+            '⚠️ Auto-refresh failed, manual re-authentication may be required'
+          );
         }
       }, timeUntilRefresh);
     }
@@ -217,8 +228,8 @@ class AuthMCPWrapper {
   static isTokenExpired(tokens) {
     if (!tokens || !tokens.timestamp) return true;
     const expiresIn = parseInt(tokens.expires_in, 10) || 3600;
-    const expirationTime = tokens.timestamp + (expiresIn * 1000);
-    return (expirationTime - Date.now()) < (5 * 60 * 1000); // 5 min buffer
+    const expirationTime = tokens.timestamp + expiresIn * 1000;
+    return expirationTime - Date.now() < 5 * 60 * 1000; // 5 min buffer
   }
 
   static handleError(req, res, reject, server) {
@@ -232,7 +243,11 @@ class AuthMCPWrapper {
         res.writeHead(400);
         res.end('Error received');
         server.close();
-        reject(new Error(`Authentication error: ${data.error_description || data.error}`));
+        reject(
+          new Error(
+            `Authentication error: ${data.error_description || data.error}`
+          )
+        );
       } catch (error) {
         res.writeHead(500);
         res.end('Parse error');
@@ -336,8 +351,12 @@ class AuthMCPWrapper {
         }
       });
 
-      server.listen(8080, () => this.output('🔗 Waiting for callback on localhost:8080'));
-      server.on('error', (err) => reject(new Error(`Server error: ${err.message}`)));
+      server.listen(8080, () =>
+        this.output('🔗 Waiting for callback on localhost:8080')
+      );
+      server.on('error', (err) =>
+        reject(new Error(`Server error: ${err.message}`))
+      );
     });
   }
 
@@ -401,7 +420,7 @@ class AuthMCPWrapper {
       this.debug(`Token expires in: ${storedTokens.expires_in}s`);
       if (storedTokens.timestamp) {
         const expiresAt = new Date(
-          storedTokens.timestamp + parseInt(storedTokens.expires_in, 10) * 1000,
+          storedTokens.timestamp + parseInt(storedTokens.expires_in, 10) * 1000
         );
         this.debug(`Token expires at: ${expiresAt.toISOString()}`);
       }
@@ -448,7 +467,11 @@ class AuthMCPWrapper {
       const headers = { 'User-Agent': 'mcp-remote-with-okta/1.2.0' };
       const response = await fetch(healthUrl, { method: 'HEAD', headers });
       const isHealthy = response.ok;
-      this.output(isHealthy ? '✅ MCP server is healthy' : '⚠️ MCP server health check failed');
+      this.output(
+        isHealthy
+          ? '✅ MCP server is healthy'
+          : '⚠️ MCP server health check failed'
+      );
       return isHealthy;
     } catch (error) {
       this.output(`⚠️ Health check failed: ${error.message}`);
@@ -475,10 +498,15 @@ class AuthMCPWrapper {
 
     this.output('🚀 Launching MCP remote...');
 
-    const mcpProcess = spawn(this.mcpArgs[0], [
-      ...this.mcpArgs.slice(1),
-      '--header', `Authorization: Bearer ${authToken}`,
-    ], { stdio: 'inherit', env: process.env });
+    const mcpProcess = spawn(
+      this.mcpArgs[0],
+      [
+        ...this.mcpArgs.slice(1),
+        '--header',
+        `Authorization: Bearer ${authToken}`,
+      ],
+      { stdio: 'inherit', env: process.env }
+    );
 
     mcpProcess.on('error', (error) => {
       this.error(`❌ Failed to start MCP: ${error.message}`);
@@ -486,7 +514,9 @@ class AuthMCPWrapper {
     });
 
     mcpProcess.on('exit', (code, signal) => {
-      this.output(signal ? `🛑 Terminated by ${signal}` : `🏁 Exited with code ${code}`);
+      this.output(
+        signal ? `🛑 Terminated by ${signal}` : `🏁 Exited with code ${code}`
+      );
       process.exit(code || 0);
     });
   }
@@ -500,16 +530,23 @@ class AuthMCPWrapper {
     const commands = {
       authenticate: async () => {
         const token = await this.getValidToken();
-        this.output(`\n🎉 Authentication completed!\n🔑 Token: ${token.substring(0, 20)}...`);
+        this.output(
+          `\n🎉 Authentication completed!\n🔑 Token: ${token.substring(
+            0,
+            20
+          )}...`
+        );
       },
       status: () => {
         const tokens = this.loadTokens();
         if (tokens) {
           const isExpired = AuthMCPWrapper.isTokenExpired(tokens);
-          this.output(`📊 Token Status: ${isExpired ? '❌ Expired' : '✅ Valid'}`);
+          this.output(
+            `📊 Token Status: ${isExpired ? '❌ Expired' : '✅ Valid'}`
+          );
           if (tokens.timestamp) {
             const expiresIn = parseInt(tokens.expires_in, 10) || 3600;
-            const expiration = new Date(tokens.timestamp + (expiresIn * 1000));
+            const expiration = new Date(tokens.timestamp + expiresIn * 1000);
             this.output(`⏰ Expires: ${expiration.toLocaleString()}`);
           }
         } else {
@@ -550,17 +587,26 @@ Available commands:
       debug: async () => {
         this.output('🔍 Debug Information:');
         this.output(`🔗 MCP URL: ${this.mcpRemoteUrl}`);
-        const clientId = this.clientId ? `${this.clientId.substring(0, 10)}...` : 'Not set';
+        const clientId = this.clientId
+          ? `${this.clientId.substring(0, 10)}...`
+          : 'Not set';
         this.output(`🔑 Client ID: ${clientId}`);
         const tokens = this.loadTokens();
         if (tokens) {
           const isExpired = AuthMCPWrapper.isTokenExpired(tokens);
-          this.output(`📊 Token Status: ${isExpired ? '❌ Expired' : '✅ Valid'}`);
-          this.output(`🔐 Access Token (first 20): ${tokens.access_token.substring(0, 20)}...`);
+          this.output(
+            `📊 Token Status: ${isExpired ? '❌ Expired' : '✅ Valid'}`
+          );
+          this.output(
+            `🔐 Access Token (first 20): ${tokens.access_token.substring(
+              0,
+              20
+            )}...`
+          );
           this.output(`⏰ Expires In: ${tokens.expires_in}s`);
           if (tokens.timestamp) {
             const expiresAt = new Date(
-              tokens.timestamp + (parseInt(tokens.expires_in, 10) * 1000),
+              tokens.timestamp + parseInt(tokens.expires_in, 10) * 1000
             );
             this.output(`📅 Expires At: ${expiresAt.toLocaleString()}`);
           }
@@ -599,7 +645,11 @@ async function main() {
 
   const mcpRemoteUri = args[0] || process.env.MCP_REMOTE_URI;
 
-  if (args.includes('--help') || !mcpRemoteUri || !mcpRemoteUri.endsWith('/mcp')) {
+  if (
+    args.includes('--help') ||
+    !mcpRemoteUri ||
+    !mcpRemoteUri.endsWith('/mcp')
+  ) {
     console.log(`
 MCP Remote Wrapper v1.2.0
 
@@ -620,7 +670,6 @@ Environment Variables:
     `);
     return;
   }
-
 
   const wrapper = new AuthMCPWrapper(mcpRemoteUri, { isMCPMode });
 
