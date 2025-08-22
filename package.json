@@ -13,9 +13,11 @@
     "lint": "eslint src/index.js",
     "lint:fix": "eslint src/index.js --fix",
     "build:local-app": "node build.js",
+    "build:local-app:watch": "node --watch-path=src build.js",
     "build:install": "webpack --config webpack.config.js && chmod +x dist/install.js",
     "build": "pnpm build:local-app && pnpm build:install",
-    "start": "pnpm build:local-app && node dist/index.js"
+    "start": "pnpm build:local-app && node dist/index.js",
+    "debug": "npx -y @modelcontextprotocol/inspector"
   },
   "keywords": [
     "mcp",
