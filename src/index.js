@@ -62,6 +62,7 @@ class AuthMCPWrapper {
   constructor(mcpRemoteUrl, options = {}) {
     this.configDir = path.join(os.homedir(), '.metalab');
     this.tokenFile = path.join(this.configDir, 'okta-token.json');
+    this.loginLockFile = path.join(this.configDir, 'okta-login.lock');
 
     // Configuration
     this.clientId = process.env.OKTA_CLIENT_ID;
