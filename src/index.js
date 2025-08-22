@@ -6,6 +6,26 @@ const http = require('http');
 const os = require('os');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
+const net = require('net');
+
+async function isPortTaken(port, host = '0.0.0.0') {
+  return new Promise((resolve) => {
+    const tester = net
+      .createServer()
+      .once('error', (err) => {
+        if (err.code === 'EADDRINUSE') {
+          resolve(true);
+        } else {
+          resolve(false); // Some other error
+        }
+      })
+      .once('listening', () => {
+        tester.close();
+        resolve(false);
+      })
+      .listen(port, host);
+  });
+}
 
 class OktaAuthStrategy {
   constructor(config) {
@@ -242,6 +262,47 @@ class AuthMCPWrapper {
     });
   }
 
+  // ---- Cross-process lock helpers ----
+  _lockPath() {
+    return this.loginLockFile;
+  }
+
+  /**
+   * Returns true if the login lock file is fresh (i.e. within the maxAgeMs time range).
+   * @param {number} maxAgeMs - The maximum age of the lock file in milliseconds.
+   * @returns {boolean} true if the lock file is fresh, false otherwise.
+   */
+  _lockFresh(maxAgeMs = 5_000) {
+    try {
+      if (!fs.existsSync(this._lockPath())) return false;
+      const stat = fs.statSync(this._lockPath());
+      return Date.now() - stat.mtimeMs < maxAgeMs;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Write the current timestamp to the lock file. This is used to prevent concurrent login flows.
+   * Ignores any errors that occur while writing the lock file.
+   */
+  _writeLock() {
+    try {
+      this.ensureConfigDir();
+      fs.writeFileSync(this._lockPath(), String(Date.now()));
+    } catch {
+      // ignore
+    }
+  }
+
+  _clearLock() {
+    try {
+      if (fs.existsSync(this._lockPath())) fs.unlinkSync(this._lockPath());
+    } catch {
+      // ignore
+    }
+  }
+
   /**
    * OAuth flow
    */
@@ -254,7 +315,23 @@ class AuthMCPWrapper {
     const authUrl = this.authStrategy.getAuthUrl(state);
 
     this.output('🚀 Starting Okta OAuth flow...');
+
+    if (this._lockFresh()) {
+      return new Promise((res) => {
+        res(null);
+      });
+    }
+
     this.openBrowser(authUrl);
+    this._writeLock();
+
+    const taken = await isPortTaken(8080);
+
+    if (taken) {
+      return new Promise((res) => {
+        res(null);
+      });
+    }
 
     return new Promise((resolve, reject) => {
       const server = http.createServer((req, res) => {
@@ -430,9 +507,14 @@ class AuthMCPWrapper {
     // Start new auth flow
     this.debug('🚀 Starting new authentication flow...');
     const tokens = await this.startAuthFlow();
-    this.saveTokens(tokens);
     this.debug('✅ New tokens obtained and saved');
-    return tokens.access_token;
+
+    if (tokens) {
+      this.saveTokens(tokens);
+      return tokens.access_token;
+    }
+
+    return null;
   }
 
   /**
@@ -472,6 +554,10 @@ class AuthMCPWrapper {
     }
 
     const authToken = await this.getValidToken();
+
+    if (!authToken) {
+      throw new Error('Waiting for authentication');
+    }
 
     this.output('🚀 Launching MCP remote...');
 
