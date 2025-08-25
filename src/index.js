@@ -5,7 +5,7 @@ const path = require('path');
 const http = require('http');
 const os = require('os');
 const crypto = require('crypto');
-const { spawn } = require('child_process');
+const { spawn, exec } = require('child_process');
 const net = require('net');
 
 async function isPortTaken(port, host = '0.0.0.0') {
@@ -315,13 +315,13 @@ class AuthMCPWrapper {
     const state = crypto.randomBytes(16).toString('hex');
     const authUrl = this.authStrategy.getAuthUrl(state);
 
-    this.output('🚀 Starting Okta OAuth flow...');
-
     if (this._lockFresh()) {
       return new Promise((res) => {
         res(null);
       });
     }
+
+    this.output('🚀 Starting Okta OAuth flow...');
 
     this.openBrowser(authUrl);
     this._writeLock();
@@ -720,6 +720,9 @@ Environment Variables:
   process.on('exit', cleanup);
 
   try {
+    // Attempt to ensure port 8080 is free
+    await kill();
+
     if (args[1]) {
       await wrapper.runCLI(args[1]);
     } else {
@@ -748,3 +751,146 @@ if (require.main === module) {
 module.exports = AuthMCPWrapper;
 module.exports.main = main;
 module.exports.OktaAuthStrategy = OktaAuthStrategy;
+
+// ----- Process management helpers -----
+function run(cmd) {
+  return new Promise((resolve, reject) => {
+    exec(cmd,
+      { windowsHide: true, maxBuffer: 1024 * 1024 },
+      (err, stdout, stderr) => {
+        if (err || stderr) return reject(new Error(stderr || err.message));
+        resolve(stdout);
+      });
+  });
+}
+
+async function getProcessIdsUnix(port) {
+  try {
+    const out = await run(`lsof -nP -i :${port} -t`);
+    return out
+      .split(/\r?\n/)
+      .map(s => s.trim())
+      .filter(Boolean)
+      .map(Number)
+      .filter(n => !Number.isNaN(n));
+  } catch {
+    return [];
+  }
+}
+
+async function getProcessIdsWindows(port) {
+  try {
+    const out = await run(`netstat -ano | findstr :${port}`);
+    const lines = out.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    const pids = new Set();
+
+    for (const line of lines) {
+      const cols = line.split(/\s+/);
+      if (cols.length < 4) continue;
+
+      const proto = (cols[0] || '').toUpperCase();
+      const local = cols[1] || '';
+      const foreign = cols[2] || '';
+      const pidStr = cols[cols.length - 1] || '';
+
+      const isPortMatch =
+        local.endsWith(`:${port}`) || foreign.endsWith(`:${port}`);
+
+      if ((proto === 'TCP' || proto === 'UDP') && isPortMatch) {
+        const pid = Number(pidStr);
+
+        if (!Number.isNaN(pid)) {
+          pids.add(pid);
+        }
+      }
+    }
+
+    return [...pids];
+  } catch {
+    return [];
+  }
+}
+
+async function getPids(port) {
+  if (os.platform() === "win32") {
+    return getProcessIdsWindows(port);
+  }
+
+  return getProcessIdsUnix(port);
+}
+
+function sleep(ms) {
+  return new Promise(res => {
+    setTimeout(res, ms);
+  });
+}
+
+async function killProcessIds(pids, opts = { force: false }) {
+  const selfPid = process.pid;
+  const unique = [...new Set(pids)].filter(pid => pid && pid !== selfPid);
+
+  if (unique.length === 0) {
+    // No processes found on port
+    return;
+  }
+
+  if (!opts.force) {
+    for (const pid of unique) {
+      try {
+        process.kill(pid, "SIGTERM");
+        console.log(`🟡 Sent SIGTERM to PID ${pid}`);
+      } catch (e) {
+        console.warn(`⚠️ Could not SIGTERM PID ${pid}: ${e.message}`);
+      }
+    }
+
+    // Wait a moment for graceful shutdown
+    await sleep(1500);
+  }
+
+  // Check which are still alive
+  const stillAlive = unique.filter(pid => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+
+  if (stillAlive.length === 0) {
+    // All processes exited gracefully
+    return;
+  }
+
+  // Hard kill remaining
+  if (os.platform() === "win32") {
+    for (const pid of stillAlive) {
+      try {
+        await run(`taskkill /F /PID ${pid}`);
+        console.log(`🛑 Force-killed PID ${pid}`);
+      } catch (e) {
+        console.warn(`❌ Failed to force-kill PID ${pid}: ${e.message}`);
+      }
+    }
+  } else {
+    for (const pid of stillAlive) {
+      try {
+        process.kill(pid, "SIGKILL");
+        console.log(`🛑 SIGKILL sent to PID ${pid}`);
+      } catch (e) {
+        console.warn(`❌ Failed to SIGKILL PID ${pid}: ${e.message}`);
+      }
+    }
+  }
+}
+
+async function kill() {
+  try {
+    const pids = await getPids(8080);
+    await killProcessIds(pids, { force: false });
+  } catch (e) {
+    console.error(`❌ Error: ${e.message}`);
+    process.exit(1);
+  }
+}
