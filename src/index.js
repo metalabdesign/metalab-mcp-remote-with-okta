@@ -838,9 +838,8 @@ async function killProcessIds(pids, opts = { force: false }) {
     for (const pid of unique) {
       try {
         process.kill(pid, "SIGTERM");
-        console.log(`🟡 Sent SIGTERM to PID ${pid}`);
       } catch (e) {
-        console.warn(`⚠️ Could not SIGTERM PID ${pid}: ${e.message}`);
+        // Could not SIGTERM PID
       }
     }
 
@@ -868,18 +867,16 @@ async function killProcessIds(pids, opts = { force: false }) {
     for (const pid of stillAlive) {
       try {
         await run(`taskkill /F /PID ${pid}`);
-        console.log(`🛑 Force-killed PID ${pid}`);
       } catch (e) {
-        console.warn(`❌ Failed to force-kill PID ${pid}: ${e.message}`);
+        // Failed to force-kill PID
       }
     }
   } else {
     for (const pid of stillAlive) {
       try {
         process.kill(pid, "SIGKILL");
-        console.log(`🛑 SIGKILL sent to PID ${pid}`);
       } catch (e) {
-        console.warn(`❌ Failed to SIGKILL PID ${pid}: ${e.message}`);
+        // Failed to SIGKILL PID
       }
     }
   }
