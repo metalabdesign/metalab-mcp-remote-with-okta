@@ -720,8 +720,10 @@ Environment Variables:
   process.on('exit', cleanup);
 
   try {
-    // Attempt to ensure port 8080 is free
-    await kill();
+    if (process.env.NODE_ENV !== 'test') {
+      // Attempt to ensure port 8080 is free
+      await kill();
+    }
 
     if (args[1]) {
       await wrapper.runCLI(args[1]);

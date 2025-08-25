@@ -7,7 +7,7 @@
     "mcp-remote-with-okta": "dist/index.js"
   },
   "scripts": {
-    "test": "jest",
+    "test": "NODE_ENV=test jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "lint": "eslint src/index.js",
